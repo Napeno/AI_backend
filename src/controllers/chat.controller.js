@@ -64,10 +64,10 @@ const handleChat = async (req, res) => {
       // Still process the message but don't save the prompt
     }
 
-    let conversation = await Conversation.findOne({ sessionId });
+    let conversation = await Conversation.findOne({ user: req.user._id, sessionId });
     
     if (!conversation) {
-      conversation = new Conversation({ sessionId, history: [] });
+      conversation = new Conversation({ user: req.user._id, sessionId, history: [] });
     }
 
     // Only save user message if it's NOT an internal prompt
@@ -116,7 +116,7 @@ const continueChat = async (req, res) => {
       return res.status(400).json({ error: "Session ID is required" });
     }
 
-    const conversation = await Conversation.findOne({ sessionId });
+    const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
     if (!conversation || conversation.history.length === 0) {
       return res.status(404).json({ error: "Conversation not found" });
     }
@@ -150,7 +150,7 @@ const getFullAnswer = async (req, res) => {
       return res.status(400).json({ error: "Session ID is required" });
     }
 
-    const conversation = await Conversation.findOne({ sessionId });
+    const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
     if (!conversation || conversation.history.length === 0) {
       return res.status(404).json({ error: "Conversation not found" });
     }
@@ -184,7 +184,7 @@ const checkUserAnswer = async (req, res) => {
       return res.status(400).json({ error: "Session ID and user answer are required" });
     }
 
-    const conversation = await Conversation.findOne({ sessionId });
+    const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
     if (!conversation) {
       return res.status(404).json({ error: "Conversation not found" });
     }
@@ -212,7 +212,7 @@ const checkUserAnswer = async (req, res) => {
 
 const getConversations = async (req, res) => {
     try {
-        const conversations = await Conversation.find({}, 'sessionId createdAt updatedAt')
+        const conversations = await Conversation.find({ user: req.user._id }, 'sessionId createdAt updatedAt')
             .sort({ updatedAt: -1 })
             .limit(50);
         
@@ -227,7 +227,7 @@ const getConversationHistory = async (req, res) => {
     try {
         const { sessionId } = req.params;
         
-        const conversation = await Conversation.findOne({ sessionId });
+        const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
         
         if (!conversation) {
             return res.status(404).json({ error: 'Conversation not found' });
@@ -250,7 +250,7 @@ const deleteConversation = async (req, res) => {
         const { sessionId } = req.params;
         const { language = 'en' } = req.query;
         
-        const result = await Conversation.deleteOne({ sessionId });
+        const result = await Conversation.deleteOne({ user: req.user._id, sessionId });
         
         if (result.deletedCount === 0) {
             const messages = getMessages(language);
@@ -270,7 +270,7 @@ const cleanupDuplicateMessages = async (req, res) => {
     try {
         const { sessionId } = req.params;
         
-        const conversation = await Conversation.findOne({ sessionId });
+        const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
         if (!conversation) {
             return res.status(404).json({ error: 'Conversation not found' });
         }
