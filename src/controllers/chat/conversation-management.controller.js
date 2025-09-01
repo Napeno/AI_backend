@@ -51,13 +51,13 @@ const getConversationHistory = async (req, res) => {
 
     // Filter out system prompts and invalid messages
     const cleanHistory = conversation.history.filter(msg => {
-      // Keep user messages, model responses, continue actions, and full-answer actions
+      // Keep user messages, model responses, continue actions, full-answer actions, and check-answer actions
       if (msg.role === 'user') {
         return !msg.parts[0].text.includes('Bạn là một người thầy') &&
                !msg.parts[0].text.includes('You are a friendly teacher') &&
                !msg.parts[0].text.includes('QUAN TRỌNG: Bạn KHÔNG BAO GIỜ');
       }
-      return msg.role === 'model' || msg.role === 'continue' || msg.role === 'full-answer';
+      return msg.role === 'model' || msg.role === 'continue' || msg.role === 'full-answer' || msg.role === 'check-answer';
     });
 
     res.json({ history: cleanHistory });

@@ -3,7 +3,20 @@ const { buildCheckAnswerPrompt, filterInternalPrompt } = require('./prompt.servi
 
 const checkUserAnswer = async (history, userAnswer, language = 'en') => {
   try {
-    const chat = startChat(history);
+    // Filter history to only include roles that Gemini API accepts: user, model, function, system
+    const geminiHistory = history
+      .filter(msg => 
+        msg.role === 'user' || msg.role === 'model' || msg.role === 'function' || msg.role === 'system'
+      )
+      .map(msg => ({
+        role: msg.role,
+        parts: msg.parts
+      }));
+    
+    console.log('Original history length:', history.length);
+    console.log('Filtered history for Gemini:', geminiHistory.length);
+    
+    const chat = startChat(geminiHistory);
     const prompt = buildCheckAnswerPrompt(userAnswer, language);
     
     console.log('Checking user answer with prompt:', prompt);

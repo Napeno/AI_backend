@@ -14,23 +14,49 @@ const checkUserAnswer = async (req, res) => {
       return res.status(404).json({ error: "Conversation not found" });
     }
 
-    // Check if the last message is already a check answer request (validation to prevent duplicate)
-    const lastMessage = conversation.history[conversation.history.length - 1];
-    if (lastMessage && lastMessage.role === 'user' &&
-        (lastMessage.parts[0].text.includes("Câu trả lời của tôi:") ||
-         lastMessage.parts[0].text.includes("My answer:"))) {
-      return res.status(400).json({ error: "Answer already checked" });
-    }
+    // Add check-answer action to conversation history
+    conversation.history.push({ 
+      role: 'check-answer',
+      parts: [{ text: `🔍 Đang kiểm tra câu trả lời: "${userAnswer}"` }],
+      timestamp: new Date(),
+      userAnswer: userAnswer  // Store the actual user answer for reference
+    });
 
     const modelResponse = await chatService.checkUserAnswer(conversation.history, userAnswer, language);
     
-    // Only save AI's response, user message will be added by frontend
-    conversation.history.push({ role: 'model', parts: [{ text: modelResponse }] });
+    console.log(JSON.stringify({
+      event: 'check_answer_response',
+      timestamp: new Date().toISOString(),
+      data: {
+        userId: req.user._id,
+        sessionId,
+        userAnswer: userAnswer.substring(0, 100),
+        responseLength: modelResponse?.length,
+        historyLength: conversation.history.length
+      }
+    }));
+    
+    // Save AI's response to conversation
+    conversation.history.push({ 
+      role: 'model', 
+      parts: [{ text: modelResponse }],
+      timestamp: new Date()
+    });
+    
     await conversation.save();
     
     res.json({ message: modelResponse });
   } catch (error) {
-    console.error('Error checking user answer:', error);
+    console.log(JSON.stringify({
+      event: 'check_answer_error',
+      timestamp: new Date().toISOString(),
+      error: {
+        message: error.message,
+        userId: req.user?._id,
+        sessionId: req.body?.sessionId,
+        userAnswer: req.body?.userAnswer?.substring(0, 50)
+      }
+    }));
     res.status(500).json({ error: "Internal server error" });
   }
 };

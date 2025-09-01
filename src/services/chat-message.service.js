@@ -15,9 +15,14 @@ const sendMessage = async (history, message, language = 'en') => {
     );
     
     // Further filter to only include roles that Gemini API accepts
-    const geminiHistory = cleanHistory.filter(msg => 
-      msg.role === 'user' || msg.role === 'model' || msg.role === 'function' || msg.role === 'system'
-    );
+    const geminiHistory = cleanHistory
+      .filter(msg => 
+        msg.role === 'user' || msg.role === 'model' || msg.role === 'function' || msg.role === 'system'
+      )
+      .map(msg => ({
+        role: msg.role,
+        parts: msg.parts
+      }));
     
     console.log('Clean history length:', cleanHistory.length);
     console.log('Gemini history length:', geminiHistory.length);
