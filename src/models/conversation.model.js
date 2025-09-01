@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const messageSchema = new mongoose.Schema({
     role: {
         type: String,
-        enum: ['user', 'model'],
+        enum: ['user', 'model', 'continue', 'full-answer', 'check-answer'],
         required: true,
     },
     parts: [{
@@ -12,6 +12,14 @@ const messageSchema = new mongoose.Schema({
             required: true,
         },
     }],
+    timestamp: {
+        type: Date,
+        default: Date.now
+    },
+    userAnswer: {
+        type: String,
+        required: false  // Only used for check-answer messages
+    }
 }, { _id: false });
 
 const conversationSchema = new mongoose.Schema({
