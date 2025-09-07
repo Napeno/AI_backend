@@ -8,6 +8,7 @@ router.post('/full-answer', chatController.getFullAnswer);
 router.post('/check-answer', chatController.checkUserAnswer);
 router.get('/conversations', chatController.getConversations);
 router.get('/conversations/:sessionId', chatController.getConversationHistory);
+router.put('/conversations/:sessionId/settings', chatController.updateConversationSettings);
 router.delete('/conversations/:sessionId', chatController.deleteConversation);
 router.post('/conversations/:sessionId/cleanup', chatController.cleanupDuplicateMessages);
 router.post('/cleanup-all', chatController.cleanupAllConversations);

@@ -21,7 +21,12 @@ const continueChat = async (req, res) => {
       timestamp: new Date()
     });
 
-    const modelResponse = await chatService.getContinuation(conversation.history, language);
+    const modelResponse = await chatService.getContinuation(
+      conversation.history, 
+      language,
+      conversation.educationLevel,
+      conversation.subjectArea
+    );
 
     console.log(JSON.stringify({
       event: 'continue_chat_response',

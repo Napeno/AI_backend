@@ -4,8 +4,8 @@ const { getMessages, checkIfInternalPrompt } = require('./utils');
 
 const handleChat = async (req, res) => {
   try {
-    const { message, sessionId, language = 'en' } = req.body;
-    console.log('handleChat called with:', { message: message?.substring(0, 50), sessionId, language });
+    const { message, sessionId, language = 'en', educationLevel, subjectArea } = req.body;
+    console.log('handleChat called with:', { message: message?.substring(0, 50), sessionId, language, educationLevel, subjectArea });
     
     if (!message || !sessionId) {
       return res.status(400).json({ 
@@ -23,7 +23,13 @@ const handleChat = async (req, res) => {
     let conversation = await Conversation.findOne({ user: req.user._id, sessionId });
     
     if (!conversation) {
-      conversation = new Conversation({ user: req.user._id, sessionId, history: [] });
+      conversation = new Conversation({ 
+        user: req.user._id, 
+        sessionId, 
+        history: [],
+        educationLevel: educationLevel || 'middle',
+        subjectArea: subjectArea || 'natural_sciences'
+      });
       console.log('Created new conversation for user:', req.user._id, 'sessionId:', sessionId);
     } else {
       console.log('Found existing conversation with', conversation.history.length, 'messages');
@@ -39,7 +45,13 @@ const handleChat = async (req, res) => {
     }
 
     // Get AI response using chatService directly
-    const aiResponse = await chatService.sendMessage(conversation.history, message, language);
+    const aiResponse = await chatService.sendMessage(
+      conversation.history, 
+      message, 
+      language,
+      conversation.educationLevel,
+      conversation.subjectArea
+    );
     console.log('Got AI response:', aiResponse?.substring(0, 100));
     
     // Save AI response

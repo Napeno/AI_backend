@@ -8,7 +8,8 @@ const {
     getConversationHistory, 
     deleteConversation, 
     cleanupDuplicateMessages,
-    cleanupAllConversations 
+    cleanupAllConversations,
+    updateConversationSettings,
 } = require('./chat/conversation-management.controller');
 
 module.exports = {
@@ -21,4 +22,5 @@ module.exports = {
     deleteConversation,
     cleanupDuplicateMessages,
     cleanupAllConversations,
+    updateConversationSettings,
 }; 

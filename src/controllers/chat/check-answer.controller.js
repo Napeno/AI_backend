@@ -1,5 +1,6 @@
 const Conversation = require('../../models/conversation.model');
 const chatService = require('../../services/chat.service');
+const { getMessages } = require('./utils');
 
 const checkUserAnswer = async (req, res) => {
   try {
@@ -22,7 +23,13 @@ const checkUserAnswer = async (req, res) => {
       userAnswer: userAnswer  // Store the actual user answer for reference
     });
 
-    const modelResponse = await chatService.checkUserAnswer(conversation.history, userAnswer, language);
+    const modelResponse = await chatService.checkUserAnswer(
+      conversation.history,
+      userAnswer,
+      language,
+      conversation.educationLevel,
+      conversation.subjectArea
+    );
     
     console.log(JSON.stringify({
       event: 'check_answer_response',
@@ -42,9 +49,15 @@ const checkUserAnswer = async (req, res) => {
     if (modelResponse.startsWith('[CORRECT]')) {
       isCorrect = true;
       responseText = modelResponse.substring('[CORRECT]'.length).trim();
+      if (!responseText) {
+        responseText = getMessages(language).messages.success;
+      }
     } else if (modelResponse.startsWith('[INCORRECT]')) {
       isCorrect = false;
       responseText = modelResponse.substring('[INCORRECT]'.length).trim();
+      if (!responseText) {
+        responseText = getMessages(language).messages.tryAgain;
+      }
     }
 
     // Save AI's response to conversation, including correctness

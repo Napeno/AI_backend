@@ -36,6 +36,16 @@ const conversationSchema = new mongoose.Schema({
         ref: 'User',
         required: true,
     },
+    educationLevel: {
+        type: String,
+        enum: ['elementary', 'middle', 'high'],
+        default: 'middle',
+    },
+    subjectArea: {
+        type: String,
+        enum: ['natural_sciences', 'social_sciences'],
+        default: 'natural_sciences',
+    },
     history: [messageSchema],
 }, { timestamps: true });
 
