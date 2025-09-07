@@ -19,6 +19,10 @@ const messageSchema = new mongoose.Schema({
     userAnswer: {
         type: String,
         required: false  // Only used for check-answer messages
+    },
+    isCorrect: {
+        type: Boolean,
+        required: false // Used for bot responses to check-answer
     }
 }, { _id: false });
 

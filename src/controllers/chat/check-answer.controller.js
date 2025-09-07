@@ -36,16 +36,28 @@ const checkUserAnswer = async (req, res) => {
       }
     }));
     
-    // Save AI's response to conversation
-    conversation.history.push({ 
-      role: 'model', 
-      parts: [{ text: modelResponse }],
-      timestamp: new Date()
+    let isCorrect = null;
+    let responseText = modelResponse;
+
+    if (modelResponse.startsWith('[CORRECT]')) {
+      isCorrect = true;
+      responseText = modelResponse.substring('[CORRECT]'.length).trim();
+    } else if (modelResponse.startsWith('[INCORRECT]')) {
+      isCorrect = false;
+      responseText = modelResponse.substring('[INCORRECT]'.length).trim();
+    }
+
+    // Save AI's response to conversation, including correctness
+    conversation.history.push({
+      role: 'model',
+      parts: [{ text: responseText }],
+      timestamp: new Date(),
+      isCorrect: isCorrect
     });
     
     await conversation.save();
     
-    res.json({ message: modelResponse });
+    res.json({ message: responseText, isCorrect });
   } catch (error) {
     console.log(JSON.stringify({
       event: 'check_answer_error',
