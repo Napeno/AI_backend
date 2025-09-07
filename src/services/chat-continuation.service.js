@@ -1,7 +1,7 @@
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
 const { buildContinuePrompt, filterInternalPrompt } = require('./prompt.service');
 
-const getContinuation = async (history, language = 'en') => {
+const getContinuation = async (history, language = 'en', educationLevel, subjectArea) => {
   try {
     // Filter history to only include roles that Gemini API accepts: user, model, function, system
     const geminiHistory = history
@@ -17,7 +17,7 @@ const getContinuation = async (history, language = 'en') => {
     console.log('Filtered history for Gemini:', geminiHistory.length);
     
     const chat = startChat(geminiHistory);
-    const prompt = buildContinuePrompt(language);
+    const prompt = buildContinuePrompt(language, educationLevel, subjectArea);
     
     console.log('Getting continuation with prompt:', prompt);
     

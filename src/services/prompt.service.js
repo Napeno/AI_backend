@@ -2,28 +2,30 @@
 const enPrompts = require('../locales/en.json');
 const viPrompts = require('../locales/vi.json');
 
-const getPrompts = (language = 'en') => {
-  return language === 'vi' ? viPrompts : enPrompts;
+const getPrompts = (language = 'en', educationLevel = 'middle', subjectArea = 'natural_sciences') => {
+  const basePrompts = language === 'vi' ? viPrompts : enPrompts;
+  // Fallback to middle school, natural sciences if specific prompts don't exist
+  return basePrompts.prompts?.[educationLevel]?.[subjectArea] || basePrompts.prompts.middle.natural_sciences;
 };
 
-const buildChatPrompt = (message, language = 'en') => {
-  const prompts = getPrompts(language);
-  return prompts.prompts.chat.replace('{{message}}', message);
+const buildChatPrompt = (message, language = 'en', educationLevel, subjectArea) => {
+  const prompts = getPrompts(language, educationLevel, subjectArea);
+  return prompts.chat.replace('{{message}}', message);
 };
 
-const buildContinuePrompt = (language = 'en') => {
-  const prompts = getPrompts(language);
-  return prompts.prompts.continue;
+const buildContinuePrompt = (language = 'en', educationLevel, subjectArea) => {
+  const prompts = getPrompts(language, educationLevel, subjectArea);
+  return prompts.continue;
 };
 
-const buildFullAnswerPrompt = (language = 'en') => {
-  const prompts = getPrompts(language);
-  return prompts.prompts.fullAnswer;
+const buildFullAnswerPrompt = (language = 'en', educationLevel, subjectArea) => {
+  const prompts = getPrompts(language, educationLevel, subjectArea);
+  return prompts.fullAnswer;
 };
 
-const buildCheckAnswerPrompt = (userAnswer, language = 'en') => {
-  const prompts = getPrompts(language);
-  return prompts.prompts.checkAnswer.replace('{{userAnswer}}', userAnswer);
+const buildCheckAnswerPrompt = (userAnswer, language = 'en', educationLevel, subjectArea) => {
+  const prompts = getPrompts(language, educationLevel, subjectArea);
+  return prompts.checkAnswer.replace('{{userAnswer}}', userAnswer);
 };
 
 // Helper function to filter out internal prompt text

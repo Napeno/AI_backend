@@ -1,10 +1,10 @@
 const { model, extractResponseText } = require('./gemini.service');
 const { buildChatPrompt, filterInternalPrompt } = require('./prompt.service');
 
-const sendMessage = async (history, message, language = 'en') => {
+const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea) => {
   try {
     // Build system context from the original user message and prompts
-    const systemContext = buildChatPrompt(message, language);
+    const systemContext = buildChatPrompt(message, language, educationLevel, subjectArea);
     console.log('Using system context:', systemContext);
     
     // Filter out system prompts from existing history

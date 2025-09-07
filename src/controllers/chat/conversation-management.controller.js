@@ -196,10 +196,38 @@ const cleanupAllConversations = async (req, res) => {
   }
 };
 
+const updateConversationSettings = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { educationLevel, subjectArea } = req.body;
+
+    const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
+
+    if (!conversation) {
+      return res.status(404).json({ message: 'Conversation not found' });
+    }
+
+    if (educationLevel) {
+      conversation.educationLevel = educationLevel;
+    }
+    if (subjectArea) {
+      conversation.subjectArea = subjectArea;
+    }
+
+    await conversation.save();
+
+    res.json({ message: 'Settings updated successfully', conversation });
+  } catch (error) {
+    console.error('Error updating conversation settings:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 module.exports = {
   getConversations,
   getConversationHistory,
   deleteConversation,
   cleanupDuplicateMessages,
   cleanupAllConversations,
+  updateConversationSettings,
 }; 

@@ -1,7 +1,7 @@
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
 const { buildCheckAnswerPrompt, filterInternalPrompt } = require('./prompt.service');
 
-const checkUserAnswer = async (history, userAnswer, language = 'en') => {
+const checkUserAnswer = async (history, userAnswer, language = 'en', educationLevel, subjectArea) => {
   try {
     // Filter history to only include roles that Gemini API accepts: user, model, function, system
     const geminiHistory = history
@@ -17,7 +17,7 @@ const checkUserAnswer = async (history, userAnswer, language = 'en') => {
     console.log('Filtered history for Gemini:', geminiHistory.length);
     
     const chat = startChat(geminiHistory);
-    const prompt = buildCheckAnswerPrompt(userAnswer, language);
+    const prompt = buildCheckAnswerPrompt(userAnswer, language, educationLevel, subjectArea);
     
     console.log('Checking user answer with prompt:', prompt);
     

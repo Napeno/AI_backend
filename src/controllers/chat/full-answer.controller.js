@@ -21,7 +21,12 @@ const getFullAnswer = async (req, res) => {
       timestamp: new Date()
     });
 
-    const modelResponse = await chatService.getFullAnswer(conversation.history, language);
+    const modelResponse = await chatService.getFullAnswer(
+      conversation.history,
+      language,
+      conversation.educationLevel,
+      conversation.subjectArea
+    );
     
     console.log(JSON.stringify({
       event: 'full_answer_response',
