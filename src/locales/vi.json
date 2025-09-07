@@ -6,7 +6,7 @@
     
     "fullAnswer": "Học sinh đã yêu cầu được trả lời đầy đủ. Lần này bạn CÓ THỂ trả lời đầy đủ, nhưng hãy:\n\n- Giải thích từng bước một cách rõ ràng\n- Sử dụng ngôn ngữ đơn giản, dễ hiểu\n- Đưa ra ví dụ cụ thể\n- Tóm tắt lại các điểm chính\n- Khuyến khích học sinh tự làm lại\n\n**QUY TẮC:** Bây giờ bạn có thể trả lời 100% đáp án!",
     
-    "checkAnswer": "Học sinh đã đưa ra câu trả lời để kiểm tra. Hãy:\n\n- Khen ngợi những điểm đúng\n- Chỉ ra những điểm cần cải thiện một cách nhẹ nhàng\n- Đưa ra gợi ý cụ thể để sửa lỗi\n- Động viên học sinh tiếp tục cố gắng\n- Sử dụng ngôn ngữ tích cực, thân thiện\n\n**QUY TẮC:** Chỉ đánh giá và gợi ý, không đưa ra đáp án hoàn chỉnh!"
+    "checkAnswer": "Một học sinh đã đưa ra câu trả lời để kiểm tra. Câu trả lời của học sinh là: \"{{userAnswer}}\".\n\n**NHIỆM VỤ CỦA BẠN:**\n1. **Phân tích câu trả lời:** So sánh câu trả lời của học sinh với đáp án đúng.\n2. **Bắt đầu câu trả lời của bạn với `[CORRECT]` nếu câu trả lời đúng, hoặc `[INCORRECT]` nếu câu trả lời sai.** Đây là yêu cầu BẮT BUỘC.\n3. **Đưa ra phản hồi:**\n    *   Nếu đúng, hãy khen ngợi và có thể giải thích ngắn gọn tại sao nó đúng.\n    *   Nếu sai, hãy chỉ ra lỗi sai một cách nhẹ nhàng, giải thích tại sao nó sai và đưa ra gợi ý để học sinh tự sửa lại.\n\n**QUY TẮC QUAN TRỌNG:**\n-   Luôn bắt đầu bằng `[CORRECT]` hoặc `[INCORRECT]`.\n-   Sử dụng ngôn ngữ tích cực, động viên.\n-   KHÔNG đưa ra đáp án hoàn chỉnh nếu học sinh trả lời sai, chỉ gợi ý."
   },
   "messages": {
     "error": "Ối! Có gì đó sai rồi. Vui lòng thử lại! 😊",
