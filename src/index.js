@@ -1,5 +1,5 @@
 const express = require('express');
-const cors = require('cors');
+// const cors = require('cors'); // CORS will be handled by Nginx
 require('dotenv').config();
 const connectDB = require('./config/database');
 const chatRoutes = require('./routes/chat.route');
@@ -11,15 +11,6 @@ connectDB();
 
 const app = express();
 const port = process.env.PORT || 9000;
-
-// This single cors middleware handles all CORS and preflight OPTIONS requests.
-app.use(cors({
-    origin: '*',
-    methods: ['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'],
-    allowedHeaders: ['Content-Type','Authorization','Accept','Origin','Referer','User-Agent'],
-    exposedHeaders: ['Content-Length'],
-    optionsSuccessStatus: 204,
-  }));
 
 app.use(express.json());
 
