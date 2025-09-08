@@ -12,16 +12,14 @@ connectDB();
 const app = express();
 const port = process.env.PORT || 9000;
 
-// CORS: allow all origins and handle preflight
-const corsOptions = {
-    origin: (origin, callback) => callback(null, true), // reflect request origin
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: false, // keep false when using '*'
+// This single cors middleware handles all CORS and preflight OPTIONS requests.
+app.use(cors({
+    origin: '*',
+    methods: ['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'],
+    allowedHeaders: ['Content-Type','Authorization','Accept','Origin','Referer','User-Agent'],
+    exposedHeaders: ['Content-Length'],
     optionsSuccessStatus: 204,
-};
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+  }));
 
 app.use(express.json());
 
