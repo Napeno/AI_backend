@@ -12,7 +12,17 @@ connectDB();
 const app = express();
 const port = process.env.PORT || 9000;
 
-app.use(cors());
+// CORS: allow all origins and handle preflight
+const corsOptions = {
+    origin: (origin, callback) => callback(null, true), // reflect request origin
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: false, // keep false when using '*'
+    optionsSuccessStatus: 204,
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
 
 app.use('/api/auth', authRoutes);
