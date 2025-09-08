@@ -1,2 +1,6 @@
 node_modules
 .env 
+.env.example
+.dockerignore
+docker-compose.yml
+Dockerfile
