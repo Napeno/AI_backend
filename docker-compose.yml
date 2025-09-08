@@ -5,8 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    expose:
-      - "9000"
+    ports:
+      - "0.0.0.0:9000:9000"
     environment:
       - PORT=9000
     env_file:
