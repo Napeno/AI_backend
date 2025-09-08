@@ -14,12 +14,13 @@ const port = process.env.PORT || 9000;
 
 // This single cors middleware handles all CORS and preflight OPTIONS requests.
 app.use(cors({
-    origin: '*',
+    origin: true, // đổi từ '*' sang true
     methods: ['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS'],
+    credentials: true, // thêm dòng này
     allowedHeaders: ['Content-Type','Authorization','Accept','Origin','Referer','User-Agent'],
     exposedHeaders: ['Content-Length'],
     optionsSuccessStatus: 204,
-  }));
+}));
 
 app.use(express.json());
 
