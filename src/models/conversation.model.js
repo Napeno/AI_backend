@@ -9,8 +9,34 @@ const messageSchema = new mongoose.Schema({
     parts: [{
         text: {
             type: String,
-            required: true,
+            required: false, // Not required when image is present
         },
+        image: {
+            url: {
+                type: String,
+                required: false,
+            },
+            public_id: {
+                type: String,
+                required: false,
+            },
+            width: {
+                type: Number,
+                required: false,
+            },
+            height: {
+                type: Number,
+                required: false,
+            },
+            format: {
+                type: String,
+                required: false,
+            },
+            bytes: {
+                type: Number,
+                required: false,
+            }
+        }
     }],
     timestamp: {
         type: Date,
