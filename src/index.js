@@ -6,6 +6,7 @@ const chatRoutes = require('./routes/chat.route');
 const authRoutes = require('./routes/auth.route');
 const shopRoutes = require('./routes/shop.route');
 const userRoutes = require('./routes/user.route');
+const leaderboardRoutes = require('./routes/leaderboard.route');
 const auth = require('./middleware/auth');
 
 // Connect to MongoDB
@@ -28,6 +29,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/chat', auth, chatRoutes);
 app.use('/api/shop', auth, shopRoutes);
 app.use('/api/user', auth, userRoutes);
+app.use('/api/leaderboard', auth, leaderboardRoutes);
 
 app.get('/', (req, res) => {
     res.send('Chatbot API is running!');

@@ -20,7 +20,7 @@ const checkUserAnswer = async (req, res) => {
     // Add check-answer action to conversation history
     conversation.history.push({ 
       role: 'check-answer',
-      parts: [{ text: `🔍 Đang kiểm tra câu trả lời: "${userAnswer}"` }],
+      parts: [{ text: `Đang kiểm tra câu trả lời: "${userAnswer}"` }],
       timestamp: new Date(),
       userAnswer: userAnswer  // Store the actual user answer for reference
     });
@@ -48,6 +48,7 @@ const checkUserAnswer = async (req, res) => {
     let isCorrect = null;
     let responseText = modelResponse;
     let coinsAwarded = 0;
+    let pointsAwarded = 0;
 
     if (modelResponse.startsWith('[CORRECT]')) {
       isCorrect = true;
@@ -85,6 +86,7 @@ const checkUserAnswer = async (req, res) => {
         if (user && !hasAnsweredCorrectly) {
           user.coins += 10;
           coinsAwarded = 10;
+          pointsAwarded = 25;
           
           // Award points and update rank
           const pointsResult = RankingService.awardPoints(user, 25, 'correct_answer');
@@ -127,15 +129,20 @@ const checkUserAnswer = async (req, res) => {
     
     await conversation.save();
     
-    // Fetch the updated user to get the latest coin total
+    // Fetch the updated user to get the latest coin total and points
     const updatedUser = await User.findById(req.user._id);
     const totalCoins = updatedUser ? updatedUser.coins : null;
+    const totalPoints = updatedUser ? updatedUser.points : null;
+    const currentRank = updatedUser ? updatedUser.rank : null;
     
     res.json({ 
       message: responseText, 
       isCorrect,
       coinsAwarded,
-      totalCoins
+      totalCoins,
+      totalPoints,
+      currentRank,
+pointsAwarded
     });
   } catch (error) {
     console.log(JSON.stringify({

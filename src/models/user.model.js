@@ -32,8 +32,8 @@ const userSchema = new mongoose.Schema({
   },
   rank: {
     type: String,
-    enum: ['iron', 'bronze', 'silver', 'gold', 'platinum', 'diamond'],
-    default: 'iron',
+    enum: ['bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    default: 'bronze',
   },
   avatar: {
     type: String,
