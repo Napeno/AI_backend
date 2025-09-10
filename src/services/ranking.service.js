@@ -1,11 +1,10 @@
 class RankingService {
   static RANK_THRESHOLDS = {
-    iron: 0,
-    bronze: 100,
-    silver: 300,
-    gold: 600,
-    platinum: 1000,
-    diamond: 1500,
+    bronze: 0,
+    silver: 100,
+    gold: 300,
+    platinum: 600,
+    diamond: 1000,
   };
 
   static RANK_INFO = {
