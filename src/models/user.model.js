@@ -22,6 +22,31 @@ const userSchema = new mongoose.Schema({
   passwordResetExpires: {
     type: Date,
   },
+  coins: {
+    type: Number,
+    default: 0,
+  },
+  points: {
+    type: Number,
+    default: 0,
+  },
+  rank: {
+    type: String,
+    enum: ['iron', 'bronze', 'silver', 'gold', 'platinum', 'diamond'],
+    default: 'iron',
+  },
+  avatar: {
+    type: String,
+    default: 'default',
+  },
+  ownedAvatars: [{
+    type: String,
+    default: ['default'],
+  }],
+  purchasedAvatars: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Avatar',
+  }],
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);

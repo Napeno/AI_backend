@@ -10,7 +10,7 @@ const getFullAnswer = async (history, language = 'en', educationLevel, subjectAr
       )
       .map(msg => ({
         role: msg.role,
-        parts: msg.parts
+        parts: msg.parts.map(part => ({ text: part.text || '' }))
       }));
     
     console.log('Original history length:', history.length);

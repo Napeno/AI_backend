@@ -31,9 +31,15 @@ const register = async (req, res) => {
     return res.status(201).json({
       token,
       user: {
+        _id: user._id,
         id: user._id,
         name: user.name,
         email: user.email,
+        coins: user.coins || 0,
+        points: user.points || 0,
+        rank: user.rank || 'iron',
+        avatar: user.avatar || 'default',
+        ownedAvatars: user.ownedAvatars || ['default']
       },
     });
   } catch (err) {

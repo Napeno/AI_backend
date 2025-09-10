@@ -1,7 +1,7 @@
 const { model, extractResponseText } = require('./gemini.service');
 const { buildChatPrompt, filterInternalPrompt } = require('./prompt.service');
 
-const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea) => {
+const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea, imageUrl = null) => {
   try {
     // Build system context from the original user message and prompts
     const systemContext = buildChatPrompt(message, language, educationLevel, subjectArea);
@@ -9,9 +9,9 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
     
     // Filter out system prompts from existing history
     const cleanHistory = history.filter(msg => 
-      !msg.parts[0].text.includes('Bạn là một người thầy thân thiện') &&
-      !msg.parts[0].text.includes('You are a friendly teacher') &&
-      !msg.parts[0].text.includes('QUAN TRỌNG: Bạn KHÔNG BAO GIỜ')
+      !msg.parts[0]?.text?.includes('Bạn là một người thầy thân thiện') &&
+      !msg.parts[0]?.text?.includes('You are a friendly teacher') &&
+      !msg.parts[0]?.text?.includes('QUAN TRỌNG: Bạn KHÔNG BAO GIỜ')
     );
     
     // Further filter to only include roles that Gemini API accepts
@@ -19,15 +19,19 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
       .filter(msg => 
         msg.role === 'user' || msg.role === 'model' || msg.role === 'function' || msg.role === 'system'
       )
-      .map(msg => ({
-        role: msg.role,
-        parts: msg.parts
-      }));
+      .map(msg => {
+        // We will pass the history as is, assuming it's in the correct format
+        // The image handling will be done for the CURRENT message, not past messages.
+        return {
+          role: msg.role,
+          parts: msg.parts.map(part => ({ text: part.text })) // Assuming history parts are text for now
+        };
+      });
     
     console.log('Clean history length:', cleanHistory.length);
     console.log('Gemini history length:', geminiHistory.length);
     
-    // Start chat with the gemini-compatible history (must start with user message or be empty)
+    // Start chat with the gemini-compatible history
     const chat = model.startChat({ 
       history: geminiHistory,
       generationConfig: {
@@ -40,8 +44,26 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
       }
     });
     
-    // Send just the user's actual message
-    const result = await chat.sendMessage(message);
+    // Prepare message parts
+    const messageParts = [{ text: message }];
+    
+    // Add image if provided
+    if (imageUrl) {
+        const response = await fetch(imageUrl);
+        const buffer = await response.arrayBuffer();
+        const base64Data = Buffer.from(buffer).toString('base64');
+        const mimeType = response.headers.get('content-type');
+        
+        messageParts.push({
+            inlineData: {
+                data: base64Data,
+                mimeType: mimeType
+            }
+        });
+    }
+    
+    // Send message with parts
+    const result = await chat.sendMessage(messageParts);
     console.log('Response from Gemini:', result);
     console.log('Result type:', typeof result);
     console.log('Result keys:', Object.keys(result));

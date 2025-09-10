@@ -1,21 +1,31 @@
 const express = require('express');
-// const cors = require('cors'); // CORS will be handled by Nginx
+const cors = require('cors'); // CORS will be handled by Nginx
 require('dotenv').config();
 const connectDB = require('./config/database');
 const chatRoutes = require('./routes/chat.route');
 const authRoutes = require('./routes/auth.route');
+const shopRoutes = require('./routes/shop.route');
+const userRoutes = require('./routes/user.route');
 const auth = require('./middleware/auth');
 
 // Connect to MongoDB
 connectDB();
 
 const app = express();
+
+// Enable CORS for local development
+app.use(cors({
+  origin: 'http://localhost:3000'
+}));
+
 const port = process.env.PORT || 9000;
 
 app.use(express.json());
 
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', auth, chatRoutes);
+app.use('/api/shop', auth, shopRoutes);
+app.use('/api/user', auth, userRoutes);
 
 app.get('/', (req, res) => {
     res.send('Chatbot API is running!');
