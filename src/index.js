@@ -13,10 +13,12 @@ connectDB();
 
 const app = express();
 
-// Enable CORS for local development
-app.use(cors({
-  origin: 'http://localhost:3000'
-}));
+if (process.env.MODE === 'localhost') {
+  // Enable CORS for local development
+  app.use(cors({
+    origin: 'http://localhost:3000'
+  }));
+}
 
 const port = process.env.PORT || 9000;
 
