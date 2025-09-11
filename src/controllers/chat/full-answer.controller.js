@@ -17,7 +17,7 @@ const getFullAnswer = async (req, res) => {
     // Add full-answer action to conversation history
     conversation.history.push({ 
       role: 'full-answer',
-      parts: [{ text: '📖 Đang yêu cầu đáp án đầy đủ...' }],
+      parts: [{ text: 'Đang yêu cầu đáp án đầy đủ...' }],
       timestamp: new Date()
     });
 
