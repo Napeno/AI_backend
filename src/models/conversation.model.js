@@ -69,8 +69,13 @@ const conversationSchema = new mongoose.Schema({
     },
     subjectArea: {
         type: String,
-        enum: ['natural_sciences', 'social_sciences'],
+        enum: ['natural_sciences', 'social_sciences', 'mathematics', 'english_language'],
         default: 'natural_sciences',
+    },
+    course: {
+        type: String,
+        enum: ['mathematics', 'physics', 'chemistry', 'biology', 'history', 'geography', 'civics', 'literature', 'foreign_language', 'english_language'],
+        required: false,
     },
     history: [messageSchema],
 }, { timestamps: true });

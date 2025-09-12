@@ -4,20 +4,20 @@ const User = require('../../models/user.model');
 
 const register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    const { name, username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    const existing = await User.findOne({ email: email.toLowerCase() });
+    const existing = await User.findOne({ username: username.toLowerCase() });
     if (existing) {
-      return res.status(409).json({ error: 'Email already in use' });
+      return res.status(409).json({ error: 'Username already in use' });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await User.create({
       name,
-      email: email.toLowerCase(),
+      username: username.toLowerCase(),
       passwordHash,
     });
 
@@ -27,14 +27,14 @@ const register = async (req, res) => {
       return res.status(500).json({ error: 'Server configuration error' });
     }
 
-    const token = jwt.sign({ sub: user._id.toString(), email: user.email }, secret, { expiresIn: '7d' });
+    const token = jwt.sign({ sub: user._id.toString(), username: user.username }, secret, { expiresIn: '7d' });
     return res.status(201).json({
       token,
       user: {
         _id: user._id,
         id: user._id,
         name: user.name,
-        email: user.email,
+        username: user.username,
         coins: user.coins || 0,
         points: user.points || 0,
         rank: user.rank || 'iron',

@@ -5,22 +5,15 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
-  email: {
+  username: {
     type: String,
     required: true,
     unique: true,
-    lowercase: true,
     trim: true,
   },
   passwordHash: {
     type: String,
     required: true,
-  },
-  passwordResetTokenHash: {
-    type: String,
-  },
-  passwordResetExpires: {
-    type: Date,
   },
   coins: {
     type: Number,

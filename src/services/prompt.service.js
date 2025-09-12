@@ -2,29 +2,64 @@
 const enPrompts = require('../locales/en.json');
 const viPrompts = require('../locales/vi.json');
 
-const getPrompts = (language = 'en', educationLevel = 'middle', subjectArea = 'natural_sciences') => {
-  const basePrompts = language === 'vi' ? viPrompts : enPrompts;
-  // Fallback to middle school, natural sciences if specific prompts don't exist
-  return basePrompts.prompts?.[educationLevel]?.[subjectArea] || basePrompts.prompts.middle.natural_sciences;
+// Available subject areas
+const AVAILABLE_SUBJECTS = ['natural_sciences', 'social_sciences', 'mathematics', 'english_language'];
+const AVAILABLE_LEVELS = ['elementary', 'middle', 'high'];
+
+// Specific courses within each subject area
+const AVAILABLE_COURSES = {
+  'natural_sciences': ['mathematics', 'physics', 'chemistry', 'biology'],
+  'social_sciences': ['history', 'geography', 'civics', 'literature', 'foreign_language'],
+  'mathematics': ['mathematics'], // Single course for mathematics subject
+  'english_language': ['english_language'] // Single course for english subject
 };
 
-const buildChatPrompt = (message, language = 'en', educationLevel, subjectArea) => {
-  const prompts = getPrompts(language, educationLevel, subjectArea);
+const getPrompts = (language = 'en', educationLevel = 'middle', subjectArea = 'natural_sciences', course = null) => {
+  const basePrompts = language === 'vi' ? viPrompts : enPrompts;
+  
+  // Validate inputs
+  const validLevel = AVAILABLE_LEVELS.includes(educationLevel) ? educationLevel : 'middle';
+  const validSubject = AVAILABLE_SUBJECTS.includes(subjectArea) ? subjectArea : 'natural_sciences';
+  
+  // Get prompts with course-specific fallback logic
+  const levelPrompts = basePrompts.prompts?.[validLevel];
+  if (levelPrompts) {
+    // If course is specified, try to get course-specific prompts first
+    if (course && levelPrompts[course]) {
+      return levelPrompts[course];
+    }
+    // Otherwise, fall back to subject area prompts
+    if (levelPrompts[validSubject]) {
+      return levelPrompts[validSubject];
+    }
+  }
+  
+  // Final fallback to middle school, natural sciences
+  return basePrompts.prompts?.middle?.natural_sciences || {
+    chat: "You are a helpful teacher. Answer the student's question: {{message}}",
+    continue: "Provide more guidance to help the student.",
+    fullAnswer: "Give the complete answer to the student.",
+    checkAnswer: "Check the student's answer: {{userAnswer}}"
+  };
+};
+
+const buildChatPrompt = (message, language = 'en', educationLevel, subjectArea, course = null) => {
+  const prompts = getPrompts(language, educationLevel, subjectArea, course);
   return prompts.chat.replace('{{message}}', message);
 };
 
-const buildContinuePrompt = (language = 'en', educationLevel, subjectArea) => {
-  const prompts = getPrompts(language, educationLevel, subjectArea);
+const buildContinuePrompt = (language = 'en', educationLevel, subjectArea, course = null) => {
+  const prompts = getPrompts(language, educationLevel, subjectArea, course);
   return prompts.continue;
 };
 
-const buildFullAnswerPrompt = (language = 'en', educationLevel, subjectArea) => {
-  const prompts = getPrompts(language, educationLevel, subjectArea);
+const buildFullAnswerPrompt = (language = 'en', educationLevel, subjectArea, course = null) => {
+  const prompts = getPrompts(language, educationLevel, subjectArea, course);
   return prompts.fullAnswer;
 };
 
-const buildCheckAnswerPrompt = (userAnswer, language = 'en', educationLevel, subjectArea) => {
-  const prompts = getPrompts(language, educationLevel, subjectArea);
+const buildCheckAnswerPrompt = (userAnswer, language = 'en', educationLevel, subjectArea, course = null) => {
+  const prompts = getPrompts(language, educationLevel, subjectArea, course);
   return prompts.checkAnswer.replace('{{userAnswer}}', userAnswer);
 };
 
@@ -43,7 +78,15 @@ const filterInternalPrompt = (text, language) => {
       /QUY TẮC: Bây giờ bạn có thể trả lời 100% đáp án!/,
       /QUY TẮC: Chỉ đánh giá và gợi ý[\s\S]*?đáp án hoàn chỉnh!/,
       /Student is having difficulty and needs more hints\. IMPORTANT:[\s\S]*?70% of the answer!/,
-      /IMPORTANT: You MUST NOT give the full answer[\s\S]*?60-70% of the answer!/
+      /IMPORTANT: You MUST NOT give the full answer[\s\S]*?60-70% of the answer!/,
+      // Mathematics specific Vietnamese patterns
+      /Bạn là một giáo viên toán học có kỹ năng[\s\S]*?nên là gì\./,
+      /Bạn là một giáo viên toán học chuyên môn[\s\S]*?bước tiếp theo\./,
+      /Thầy là người thầy toán vui vẻ[\s\S]*?tiếp theo là gì!/,
+      // English language specific Vietnamese patterns
+      /Bạn là một giáo viên tiếng Anh nhiệt tình[\s\S]*?về văn bản hoặc khái niệm\./,
+      /Bạn là một giáo viên tiếng Anh và văn học tinh tế[\s\S]*?diễn giải sâu hơn\./,
+      /Thầy là cô giáo tiếng Anh ấm áp[\s\S]*?nhận thấy hoặc cảm nhận!/
     ];
     
     patterns.forEach(pattern => {
@@ -60,7 +103,15 @@ const filterInternalPrompt = (text, language) => {
       /RULE: Only hint 30-40% of the answer[\s\S]*?discover the rest!/,
       /RULE: Only hint an additional 20-30%[\s\S]*?70% of the answer!/,
       /RULE: Now you can give 100% of the answer!/,
-      /RULE: Only evaluate and suggest[\s\S]*?complete answers!/
+      /RULE: Only evaluate and suggest[\s\S]*?complete answers!/,
+      // Mathematics specific patterns
+      /You are a skilled and encouraging mathematics teacher[\s\S]*?next step should be\./,
+      /You are an enthusiastic and supportive mathematics teacher[\s\S]*?should come next!/,
+      /You are an expert mathematics teacher[\s\S]*?explain their next step\./,
+      // English language specific patterns
+      /You are an enthusiastic and supportive English language teacher[\s\S]*?text or concept\./,
+      /You are a sophisticated English language and literature teacher[\s\S]*?interpretation further\./,
+      /You are a warm and encouraging English teacher[\s\S]*?notice or feel!/
     ];
     
     patterns.forEach(pattern => {
@@ -78,6 +129,16 @@ const filterInternalPrompt = (text, language) => {
   return text;
 };
 
+// Helper functions to get available options
+const getAvailableSubjects = () => AVAILABLE_SUBJECTS;
+const getAvailableLevels = () => AVAILABLE_LEVELS;
+const getAvailableCourses = (subjectArea = null) => {
+  if (subjectArea && AVAILABLE_COURSES[subjectArea]) {
+    return AVAILABLE_COURSES[subjectArea];
+  }
+  return AVAILABLE_COURSES;
+};
+
 module.exports = {
   getPrompts,
   buildChatPrompt,
@@ -85,4 +146,10 @@ module.exports = {
   buildFullAnswerPrompt,
   buildCheckAnswerPrompt,
   filterInternalPrompt,
+  getAvailableSubjects,
+  getAvailableLevels,
+  getAvailableCourses,
+  AVAILABLE_SUBJECTS,
+  AVAILABLE_LEVELS,
+  AVAILABLE_COURSES,
 }; 

@@ -4,12 +4,12 @@ const User = require('../../models/user.model');
 
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase() });
+    const user = await User.findOne({ username: username.toLowerCase() });
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -25,14 +25,14 @@ const login = async (req, res) => {
       return res.status(500).json({ error: 'Server configuration error' });
     }
 
-    const token = jwt.sign({ sub: user._id.toString(), email: user.email }, secret, { expiresIn: '7d' });
+    const token = jwt.sign({ sub: user._id.toString(), username: user.username }, secret, { expiresIn: '7d' });
     return res.json({
       token,
       user: { 
         _id: user._id,
         id: user._id, 
         name: user.name, 
-        email: user.email,
+        username: user.username,
         coins: user.coins || 0,
         points: user.points || 0,
         rank: user.rank || 'iron',
