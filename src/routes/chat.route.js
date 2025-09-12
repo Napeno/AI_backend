@@ -15,5 +15,6 @@ router.put('/conversations/:sessionId/settings', chatController.updateConversati
 router.delete('/conversations/:sessionId', chatController.deleteConversation);
 router.post('/conversations/:sessionId/cleanup', chatController.cleanupDuplicateMessages);
 router.post('/cleanup-all', chatController.cleanupAllConversations);
+router.get('/config', chatController.getConfig);
 
 module.exports = router; 

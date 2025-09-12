@@ -11,6 +11,7 @@ const {
     cleanupAllConversations,
     updateConversationSettings,
 } = require('./chat/conversation-management.controller');
+const { getConfig } = require('./chat/config.controller');
 
 module.exports = {
     handleChat,
@@ -23,4 +24,5 @@ module.exports = {
     cleanupDuplicateMessages,
     cleanupAllConversations,
     updateConversationSettings,
+    getConfig,
 }; 
