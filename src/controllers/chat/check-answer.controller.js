@@ -50,9 +50,13 @@ const checkUserAnswer = async (req, res) => {
     let coinsAwarded = 0;
     let pointsAwarded = 0;
 
-    if (modelResponse.startsWith('[CORRECT]')) {
+    if (modelResponse.startsWith('[CORRECT]') || modelResponse.startsWith('[ĐÚNG]')) {
       isCorrect = true;
-      responseText = modelResponse.substring('[CORRECT]'.length).trim();
+      if (modelResponse.startsWith('[CORRECT]')) {
+        responseText = modelResponse.substring('[CORRECT]'.length).trim();
+      } else {
+        responseText = modelResponse.substring('[ĐÚNG]'.length).trim();
+      }
       
       // Check if user has already given this exact correct answer before
       const normalizedAnswer = userAnswer.toLowerCase().trim();
@@ -111,9 +115,13 @@ const checkUserAnswer = async (req, res) => {
       if (!responseText) {
         responseText = getMessages(language).messages.success;
       }
-    } else if (modelResponse.startsWith('[INCORRECT]')) {
+    } else if (modelResponse.startsWith('[INCORRECT]') || modelResponse.startsWith('[SAI]')) {
       isCorrect = false;
-      responseText = modelResponse.substring('[INCORRECT]'.length).trim();
+      if (modelResponse.startsWith('[INCORRECT]')) {
+        responseText = modelResponse.substring('[INCORRECT]'.length).trim();
+      } else {
+        responseText = modelResponse.substring('[SAI]'.length).trim();
+      }
       if (!responseText) {
         responseText = getMessages(language).messages.tryAgain;
       }
