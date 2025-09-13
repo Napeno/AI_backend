@@ -12,7 +12,7 @@ const getConversations = async (req, res) => {
       const firstUserMessage = conv.history.find(msg => 
         msg.role === 'user' && 
         !msg.parts[0].text.includes('Bạn là một người thầy') &&
-        !msg.parts[0].text.includes('You are a friendly teacher')
+        !msg.parts[0].text.includes('You are a friendly friend')
       );
       
       return {
@@ -24,7 +24,7 @@ const getConversations = async (req, res) => {
         messageCount: conv.history.filter(msg => 
           msg.role === 'user' && 
           !msg.parts[0].text.includes('Bạn là một người thầy') &&
-          !msg.parts[0].text.includes('You are a friendly teacher')
+          !msg.parts[0].text.includes('You are a friendly friend')
         ).length
       };
     });
@@ -54,7 +54,7 @@ const getConversationHistory = async (req, res) => {
       // Keep user messages, model responses, continue actions, full-answer actions, and check-answer actions
       if (msg.role === 'user') {
         return !msg.parts[0].text.includes('Bạn là một người thầy') &&
-               !msg.parts[0].text.includes('You are a friendly teacher') &&
+               !msg.parts[0].text.includes('You are a friendly friend') &&
                !msg.parts[0].text.includes('QUAN TRỌNG: Bạn KHÔNG BAO GIỜ');
       }
       return msg.role === 'model' || msg.role === 'continue' || msg.role === 'full-answer' || msg.role === 'check-answer';
@@ -108,7 +108,7 @@ const cleanupDuplicateMessages = async (req, res) => {
       // Skip system prompts
       if (message.role === 'user' && (
         message.parts[0].text.includes('Bạn là một người thầy') ||
-        message.parts[0].text.includes('You are a friendly teacher') ||
+        message.parts[0].text.includes('You are a friendly friend') ||
         message.parts[0].text.includes('QUAN TRỌNG: Bạn KHÔNG BAO GIỜ')
       )) {
         continue;
@@ -159,7 +159,7 @@ const cleanupAllConversations = async (req, res) => {
         // Skip system prompts
         if (message.role === 'user' && (
           message.parts[0].text.includes('Bạn là một người thầy') ||
-          message.parts[0].text.includes('You are a friendly teacher') ||
+          message.parts[0].text.includes('You are a friendly friend') ||
           message.parts[0].text.includes('QUAN TRỌNG: Bạn KHÔNG BAO GIỜ')
         )) {
           continue;

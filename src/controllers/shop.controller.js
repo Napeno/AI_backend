@@ -14,7 +14,7 @@ const purchaseAvatar = async (req, res) => {
     const AVATAR_PRICES = {
       default: 0,
       student: 50,
-      teacher: 100,
+      friend: 100,
       scientist: 150,
       artist: 120,
       engineer: 180,

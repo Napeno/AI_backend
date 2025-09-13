@@ -20,7 +20,7 @@ const checkIfInternalPrompt = (message, language) => {
     return patterns.some(pattern => pattern.test(message));
   } else {
     const patterns = [
-      /You are a friendly and patient teacher/,
+      /You are a friendly and patient friend/,
       /The student is having difficulty and needs more hints/,
       /IMPORTANT: You must NEVER give complete answers/,
       /RULE: Only hint/,

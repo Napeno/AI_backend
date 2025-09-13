@@ -10,7 +10,7 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
     // Filter out system prompts from existing history
     const cleanHistory = history.filter(msg => 
       !msg.parts[0]?.text?.includes('Bạn là một người thầy thân thiện') &&
-      !msg.parts[0]?.text?.includes('You are a friendly teacher') &&
+      !msg.parts[0]?.text?.includes('You are a friendly friend') &&
       !msg.parts[0]?.text?.includes('QUAN TRỌNG: Bạn KHÔNG BAO GIỜ')
     );
     

@@ -36,7 +36,7 @@ const getPrompts = (language = 'en', educationLevel = 'middle', subjectArea = 'n
   
   // Final fallback to middle school, natural sciences
   return basePrompts.prompts?.middle?.natural_sciences || {
-    chat: "You are a helpful teacher. Answer the student's question: {{message}}",
+    chat: "You are a helpful companion. Answer the student's question: {{message}}",
     continue: "Provide more guidance to help the student.",
     fullAnswer: "Give the complete answer to the student.",
     checkAnswer: "Check the student's answer: {{userAnswer}}"
@@ -98,20 +98,20 @@ const filterInternalPrompt = (text, language) => {
       /The student has provided their answer for checking\. Please:[\s\S]*?complete answers!/,
       /The student is having difficulty and needs more hints\. IMPORTANT:[\s\S]*?70% of the answer!/,
       /The student has requested a complete answer\. This time[\s\S]*?100% of the answer!/,
-      /You are a friendly and patient teacher[\s\S]*?discover the rest!/,
+      /You are a friendly and patient friend[\s\S]*?discover the rest!/,
       /IMPORTANT: You must NEVER give complete answers[\s\S]*?discover the rest!/,
       /RULE: Only hint 30-40% of the answer[\s\S]*?discover the rest!/,
       /RULE: Only hint an additional 20-30%[\s\S]*?70% of the answer!/,
       /RULE: Now you can give 100% of the answer!/,
       /RULE: Only evaluate and suggest[\s\S]*?complete answers!/,
       // Mathematics specific patterns
-      /You are a skilled and encouraging mathematics teacher[\s\S]*?next step should be\./,
-      /You are an enthusiastic and supportive mathematics teacher[\s\S]*?should come next!/,
-      /You are an expert mathematics teacher[\s\S]*?explain their next step\./,
+      /You are a skilled and encouraging mathematics companion[\s\S]*?next step should be\./,
+      /You are an enthusiastic and supportive mathematics companion[\s\S]*?should come next!/,
+      /You are an expert mathematics companion[\s\S]*?explain their next step\./,
       // English language specific patterns
-      /You are an enthusiastic and supportive English language teacher[\s\S]*?text or concept\./,
-      /You are a sophisticated English language and literature teacher[\s\S]*?interpretation further\./,
-      /You are a warm and encouraging English teacher[\s\S]*?notice or feel!/
+      /You are an enthusiastic and supportive English language companion[\s\S]*?text or concept\./,
+      /You are a sophisticated English language and literature companion[\s\S]*?interpretation further\./,
+      /You are a warm and encouraging English companion[\s\S]*?notice or feel!/
     ];
     
     patterns.forEach(pattern => {
