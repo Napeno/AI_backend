@@ -2,7 +2,7 @@
 const { handleChat } = require('./chat/handle-chat.controller');
 const { continueChat } = require('./chat/continue-chat.controller');
 const { getFullAnswer } = require('./chat/full-answer.controller');
-const { checkUserAnswer } = require('./chat/check-answer.controller');
+const { checkUserAnswer, checkUserAnswerWithImage } = require('./chat/check-answer.controller');
 const { 
     getConversations, 
     getConversationHistory, 
@@ -18,6 +18,7 @@ module.exports = {
     continueChat,
     getFullAnswer,
     checkUserAnswer,
+    checkUserAnswerWithImage,
     getConversations,
     getConversationHistory,
     deleteConversation,

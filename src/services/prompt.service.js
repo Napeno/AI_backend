@@ -2,25 +2,61 @@
 const enPrompts = require('../locales/en.json');
 const viPrompts = require('../locales/vi.json');
 
-// Available subject areas
-const AVAILABLE_SUBJECTS = ['natural_sciences', 'social_sciences', 'mathematics', 'english_language'];
+// Available subject areas for all levels
+const AVAILABLE_SUBJECTS = [
+  // Elementary level subjects
+  'vietnamese', 'mathematics', 'foreign_language', 'ethics', 'natural_social',
+  'history_geography', 'science', 'informatics_technology', 'physical_education', 'arts',
+  // Middle level subjects
+  'literature', 'civic_education', 'natural_sciences', 'technology', 'informatics',
+  // High level subjects (existing)
+  'social_sciences', 'english_language'
+];
 const AVAILABLE_LEVELS = ['elementary', 'middle', 'high'];
 
-// Specific courses within each subject area
+// Specific courses within each level and subject area
 const AVAILABLE_COURSES = {
-  'natural_sciences': ['mathematics', 'physics', 'chemistry', 'biology'],
-  'social_sciences': ['history', 'geography', 'civics', 'literature', 'foreign_language'],
-  'mathematics': ['mathematics'], // Single course for mathematics subject
-  'english_language': ['english_language'] // Single course for english subject
+  'elementary': {
+    // Level 1 subjects (cap 1): Tiếng Việt, Toán, Ngoại ngữ 1, Đạo đức, Tự nhiên và Xã hội, Lịch sử và Địa lý, Khoa học, Tin học và Công nghệ, Giáo dục thể chất, Nghệ thuật (Âm nhạc, Mĩ thuật)
+    'vietnamese': ['vietnamese'],
+    'mathematics': ['mathematics'],
+    'foreign_language': ['english'],
+    'ethics': ['ethics'],
+    'natural_social': ['natural_social'],
+    'history_geography': ['history_geography'],
+    'science': ['science'],
+    'informatics_technology': ['informatics_technology'],
+    'physical_education': ['physical_education'],
+    'arts': ['music', 'fine_arts']
+  },
+  'middle': {
+    // Level 2 subjects (cap 2): Ngữ văn, Toán, Ngoại ngữ 1, Giáo dục công dân, Lịch sử và Địa lý, Khoa học tự nhiên, Công nghệ, Tin học, Nghệ thuật (Âm nhạc, Mỹ thuật)
+    'literature': ['literature'],
+    'mathematics': ['mathematics'],
+    'foreign_language': ['english'],
+    'civic_education': ['civic_education'],
+    'history_geography': ['history_geography'],
+    'natural_sciences': ['physics', 'chemistry', 'biology'],
+    'technology': ['technology'],
+    'informatics': ['informatics'],
+    'arts': ['music', 'fine_arts']
+  },
+  'high': {
+    // Level 3 subjects (keep unchanged): existing structure
+    'natural_sciences': ['mathematics', 'physics', 'chemistry', 'biology'],
+    'social_sciences': ['history', 'geography', 'civics', 'literature', 'foreign_language'],
+    'mathematics': ['mathematics'],
+    'english_language': ['english_language']
+  }
 };
 
 const getPrompts = (language = 'en', educationLevel = 'middle', subjectArea = 'natural_sciences', course = null) => {
   const basePrompts = language === 'vi' ? viPrompts : enPrompts;
-  
+
   // Validate inputs
   const validLevel = AVAILABLE_LEVELS.includes(educationLevel) ? educationLevel : 'middle';
   const validSubject = AVAILABLE_SUBJECTS.includes(subjectArea) ? subjectArea : 'natural_sciences';
-  
+
   // Get prompts with course-specific fallback logic
   const levelPrompts = basePrompts.prompts?.[validLevel];
   if (levelPrompts) {
@@ -33,9 +69,18 @@ const getPrompts = (language = 'en', educationLevel = 'middle', subjectArea = 'n
       return levelPrompts[validSubject];
     }
   }
-  
-  // Final fallback to middle school, natural sciences
-  return basePrompts.prompts?.middle?.natural_sciences || {
+
+  // Final fallback based on education level
+  let fallbackSubject = 'natural_sciences';
+  if (validLevel === 'elementary') {
+    fallbackSubject = 'mathematics'; // Elementary fallback to mathematics
+  } else if (validLevel === 'middle') {
+    fallbackSubject = 'natural_sciences'; // Middle fallback to natural_sciences
+  } else if (validLevel === 'high') {
+    fallbackSubject = 'natural_sciences'; // High school fallback to natural_sciences
+  }
+
+  return basePrompts.prompts?.[validLevel]?.[fallbackSubject] || basePrompts.prompts?.middle?.natural_sciences || {
     chat: "You are a helpful companion. Answer the student's question: {{message}}",
     continue: "Provide more guidance to help the student.",
     fullAnswer: "Give the complete answer to the student.",
@@ -132,9 +177,12 @@ const filterInternalPrompt = (text, language) => {
 // Helper functions to get available options
 const getAvailableSubjects = () => AVAILABLE_SUBJECTS;
 const getAvailableLevels = () => AVAILABLE_LEVELS;
-const getAvailableCourses = (subjectArea = null) => {
-  if (subjectArea && AVAILABLE_COURSES[subjectArea]) {
-    return AVAILABLE_COURSES[subjectArea];
+const getAvailableCourses = (educationLevel = null, subjectArea = null) => {
+  if (educationLevel && AVAILABLE_COURSES[educationLevel]) {
+    if (subjectArea && AVAILABLE_COURSES[educationLevel][subjectArea]) {
+      return AVAILABLE_COURSES[educationLevel][subjectArea];
+    }
+    return AVAILABLE_COURSES[educationLevel];
   }
   return AVAILABLE_COURSES;
 };
