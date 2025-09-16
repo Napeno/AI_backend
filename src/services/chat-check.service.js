@@ -14,10 +14,9 @@ const checkUserAnswer = async (history, userAnswer, language = 'en', educationLe
           const textPart = { text: part.text || '' };
           // Include image data if available in the part
           if (part.image && part.image.url) {
-            textPart.inlineData = {
-              mimeType: `image/${part.image.format || 'jpeg'}`,
-              data: part.image.url
-            };
+            // Note: For images from history, we need to fetch and convert them to base64
+            // This will be handled in the main image processing section
+            console.log('Image found in history, will be processed separately:', part.image.url);
           }
           return textPart;
         })
@@ -39,11 +38,21 @@ const checkUserAnswer = async (history, userAnswer, language = 'en', educationLe
       console.log('Adding image to check answer request:', imageUrl);
       // For Gemini, we need to convert the image URL to base64 or use inline data
       try {
-        const fetch = require('node-fetch');
         const response = await fetch(imageUrl);
-        const buffer = await response.buffer();
+        if (!response.ok) {
+          throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+        }
+        
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
         const base64 = buffer.toString('base64');
         const mimeType = response.headers.get('content-type') || 'image/jpeg';
+        
+        console.log('Image processed successfully:', {
+          mimeType,
+          dataLength: base64.length,
+          imageUrl: imageUrl.substring(0, 50) + '...'
+        });
 
         messageParts.push({
           inlineData: {
@@ -56,6 +65,14 @@ const checkUserAnswer = async (history, userAnswer, language = 'en', educationLe
         // Continue without image if there's an error
       }
     }
+
+    console.log('Sending message to Gemini with parts:', messageParts.map(part => ({
+      hasText: !!part.text,
+      textLength: part.text ? part.text.length : 0,
+      hasInlineData: !!part.inlineData,
+      mimeType: part.inlineData ? part.inlineData.mimeType : null,
+      dataLength: part.inlineData ? part.inlineData.data.length : 0
+    })));
 
     const result = await makeRequestWithRetry(async () => {
       const response = await chat.sendMessage(messageParts);

@@ -9,8 +9,12 @@ const checkUserAnswer = async (req, res) => {
   try {
     const { sessionId, userAnswer, language = 'en', imageUrl } = req.body;
 
-    if (!sessionId || !userAnswer) {
-      return res.status(400).json({ error: "Session ID and user answer are required" });
+    if (!sessionId) {
+      return res.status(400).json({ error: "Session ID is required" });
+    }
+
+    if (!userAnswer && !imageUrl) {
+      return res.status(400).json({ error: "User answer or image is required" });
     }
 
     const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
@@ -21,9 +25,9 @@ const checkUserAnswer = async (req, res) => {
     // Add check-answer action to conversation history
     const checkAnswerEntry = {
       role: 'check-answer',
-      parts: [{ text: `Đang kiểm tra câu trả lời: "${userAnswer}"` }],
+      parts: [{ text: userAnswer ? `Đang kiểm tra câu trả lời: "${userAnswer}"` : 'Đang kiểm tra câu trả lời từ hình ảnh' }],
       timestamp: new Date(),
-      userAnswer: userAnswer  // Store the actual user answer for reference
+      userAnswer: userAnswer || ''  // Store the actual user answer for reference
     };
 
     // Add image data if provided
@@ -35,7 +39,7 @@ const checkUserAnswer = async (req, res) => {
 
     const modelResponse = await chatService.checkUserAnswer(
       conversation.history,
-      userAnswer,
+      userAnswer || '',
       language,
       conversation.educationLevel,
       conversation.subjectArea,
@@ -48,7 +52,7 @@ const checkUserAnswer = async (req, res) => {
       data: {
         userId: req.user._id,
         sessionId,
-        userAnswer: userAnswer.substring(0, 100),
+        userAnswer: userAnswer ? userAnswer.substring(0, 100) : '[image only]',
         responseLength: modelResponse?.length,
         historyLength: conversation.history.length
       }
@@ -68,15 +72,15 @@ const checkUserAnswer = async (req, res) => {
       }
       
       // Check if user has already given this exact correct answer before
-      const normalizedAnswer = userAnswer.toLowerCase().trim();
-      const hasSameCorrectAnswer = conversation.history.some(msg => 
-        msg.role === 'check-answer' && 
-        msg.userAnswer && 
+      const normalizedAnswer = userAnswer ? userAnswer.toLowerCase().trim() : '';
+      const hasSameCorrectAnswer = normalizedAnswer && conversation.history.some(msg =>
+        msg.role === 'check-answer' &&
+        msg.userAnswer &&
         msg.userAnswer.toLowerCase().trim() === normalizedAnswer &&
         // Check if there's a corresponding correct response after this check-answer
-        conversation.history.some(responseMsg => 
-          responseMsg.role === 'model' && 
-          responseMsg.isCorrect === true && 
+        conversation.history.some(responseMsg =>
+          responseMsg.role === 'model' &&
+          responseMsg.isCorrect === true &&
           responseMsg.timestamp > msg.timestamp
         )
       );
@@ -169,7 +173,7 @@ pointsAwarded
         message: error.message,
         userId: req.user?._id,
         sessionId: req.body?.sessionId,
-        userAnswer: req.body?.userAnswer?.substring(0, 50)
+        userAnswer: req.body?.userAnswer ? req.body.userAnswer.substring(0, 50) : '[image only]'
       }
     }));
     res.status(500).json({ error: "Internal server error" });
@@ -181,8 +185,12 @@ const checkUserAnswerWithImage = async (req, res) => {
     const { sessionId, userAnswer, language = 'en' } = req.body;
     const imageFile = req.file;
 
-    if (!sessionId || !userAnswer) {
-      return res.status(400).json({ error: "Session ID and user answer are required" });
+    if (!sessionId) {
+      return res.status(400).json({ error: "Session ID is required" });
+    }
+
+    if (!userAnswer && !imageFile) {
+      return res.status(400).json({ error: "User answer or image is required" });
     }
 
     const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
@@ -207,9 +215,9 @@ const checkUserAnswerWithImage = async (req, res) => {
     // Add check-answer action to conversation history
     const checkAnswerEntry = {
       role: 'check-answer',
-      parts: [{ text: `Đang kiểm tra câu trả lời: "${userAnswer}"` }],
+      parts: [{ text: userAnswer ? `Đang kiểm tra câu trả lời: "${userAnswer}"` : 'Đang kiểm tra câu trả lời từ hình ảnh' }],
       timestamp: new Date(),
-      userAnswer: userAnswer  // Store the actual user answer for reference
+      userAnswer: userAnswer || ''  // Store the actual user answer for reference
     };
 
     // Add image data if provided
@@ -228,7 +236,7 @@ const checkUserAnswerWithImage = async (req, res) => {
 
     const modelResponse = await chatService.checkUserAnswer(
       conversation.history,
-      userAnswer,
+      userAnswer || '',
       language,
       conversation.educationLevel,
       conversation.subjectArea,
@@ -241,7 +249,7 @@ const checkUserAnswerWithImage = async (req, res) => {
       data: {
         userId: req.user._id,
         sessionId,
-        userAnswer: userAnswer.substring(0, 100),
+        userAnswer: userAnswer ? userAnswer.substring(0, 100) : '[image only]',
         responseLength: modelResponse?.length,
         historyLength: conversation.history.length,
         hasImage: !!imageData
@@ -262,8 +270,8 @@ const checkUserAnswerWithImage = async (req, res) => {
       }
 
       // Check if user has already given this exact correct answer before
-      const normalizedAnswer = userAnswer.toLowerCase().trim();
-      const hasSameCorrectAnswer = conversation.history.some(msg =>
+      const normalizedAnswer = userAnswer ? userAnswer.toLowerCase().trim() : '';
+      const hasSameCorrectAnswer = normalizedAnswer && conversation.history.some(msg =>
         msg.role === 'check-answer' &&
         msg.userAnswer &&
         msg.userAnswer.toLowerCase().trim() === normalizedAnswer &&
@@ -364,7 +372,7 @@ const checkUserAnswerWithImage = async (req, res) => {
         message: error.message,
         userId: req.user?._id,
         sessionId: req.body?.sessionId,
-        userAnswer: req.body?.userAnswer?.substring(0, 50)
+        userAnswer: req.body?.userAnswer ? req.body.userAnswer.substring(0, 50) : '[image only]'
       }
     }));
     res.status(500).json({ error: "Internal server error" });
