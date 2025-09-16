@@ -74,7 +74,7 @@ const conversationSchema = new mongoose.Schema({
     },
     course: {
         type: String,
-        enum: ['mathematics', 'physics', 'chemistry', 'biology', 'history', 'geography', 'civics', 'literature', 'foreign_language', 'english_language'],
+        enum: ['mathematics', 'natural_sciences', 'history', 'geography', 'civics', 'literature', 'foreign_language', 'english_language'],
         required: false,
     },
     history: [messageSchema],

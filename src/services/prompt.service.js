@@ -36,7 +36,7 @@ const AVAILABLE_COURSES = {
     'foreign_language': ['english'],
     'civic_education': ['civic_education'],
     'history_geography': ['history_geography'],
-    'natural_sciences': ['physics', 'chemistry', 'biology'],
+    'natural_sciences': ['natural_sciences'],
     'technology': ['technology'],
     'informatics': ['informatics'],
     'arts': ['music', 'fine_arts']
