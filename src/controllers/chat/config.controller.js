@@ -8,7 +8,7 @@ const getConfig = async (req, res) => {
       courses: getAvailableCourses(),
       defaultSettings: {
         educationLevel: 'middle',
-        subjectArea: 'natural_sciences',
+        subjectArea: 'mathematics',
         course: 'mathematics'
       }
     };

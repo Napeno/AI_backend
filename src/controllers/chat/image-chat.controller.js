@@ -45,21 +45,12 @@ const handleImageChat = async (req, res) => {
         sessionId, 
         history: [],
         educationLevel: educationLevel || 'middle',
-        subjectArea: subjectArea || course || 'natural_sciences',
-        course: course || subjectArea || undefined
+        subjectArea: subjectArea || 'natural_sciences',
+        course: course || undefined
       });
       console.log('Created new conversation for user:', req.user._id, 'sessionId:', sessionId);
     } else {
       console.log('Found existing conversation with', conversation.history.length, 'messages');
-      if (educationLevel && educationLevel !== conversation.educationLevel) {
-        conversation.educationLevel = educationLevel;
-      }
-      if (subjectArea && subjectArea !== conversation.subjectArea) {
-        conversation.subjectArea = subjectArea;
-      }
-      if (course && course !== conversation.course) {
-        conversation.course = course;
-      }
     }
 
     let imageData = null;

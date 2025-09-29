@@ -53,7 +53,8 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
             },
             question: { type: 'string' }
           },
-          required: ['hints', 'question']
+          required: ['hints', 'question'],
+          additionalProperties: false
         }
       },
       systemInstruction: {
