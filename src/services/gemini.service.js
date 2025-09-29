@@ -68,8 +68,8 @@ const makeRequestWithRetry = async (requestFn, maxRetries = 3) => {
   }
 };
 
-const startChat = (history) => {
-  return model.startChat({ history });
+const startChat = (history, options = {}) => {
+  return model.startChat({ history, ...options });
 };
 
 const extractResponseText = (result) => {
