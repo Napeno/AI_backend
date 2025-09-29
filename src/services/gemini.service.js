@@ -1,9 +1,31 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 require('dotenv').config();
 
-// Access your API key as an environment variable
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// Resolve API key (supports either GOOGLE_API_KEY or GEMINI_API_KEY)
+const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+if (!apiKey) {
+  throw new Error(
+    "Missing Google API key. Set 'GOOGLE_API_KEY' (preferred) or 'GEMINI_API_KEY' in your environment."
+  );
+}
+
+// Resolve model id from env, or derive from GEMINI_API_URL if provided, else default
+const resolveModelId = () => {
+  const direct = process.env.GEMINI_MODEL || process.env.GEMINI_MODEL_ID;
+  if (direct && typeof direct === 'string' && direct.trim()) return direct.trim();
+
+  const url = process.env.GEMINI_API_URL;
+  if (url && typeof url === 'string') {
+    const m = url.match(/\/models\/([^:\/]+):generateContent/);
+    if (m && m[1]) return m[1];
+  }
+  // Default to the smaller 1.5 Flash 8B to align with many quotas
+  return 'gemini-1.5-flash-8b';
+};
+
+const modelId = resolveModelId();
+const genAI = new GoogleGenerativeAI(apiKey);
+const model = genAI.getGenerativeModel({ model: modelId });
 
 // Helper function for retry logic with exponential backoff
 const makeRequestWithRetry = async (requestFn, maxRetries = 3) => {
