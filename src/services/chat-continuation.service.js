@@ -39,8 +39,7 @@ const getContinuation = async (history, language = 'en', educationLevel, subject
             },
             question: { type: 'string' }
           },
-          required: ['hints', 'question'],
-          additionalProperties: false
+          required: ['hints', 'question']
         }
       }
     });
