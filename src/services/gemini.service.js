@@ -19,11 +19,12 @@ const resolveModelId = () => {
     const m = url.match(/\/models\/([^:\/]+):generateContent/);
     if (m && m[1]) return m[1];
   }
-  // Default to the smaller 1.5 Flash 8B to align with many quotas
-  return 'gemini-1.5-flash-8b';
+  // Default to widely available 1.5 Flash
+  return 'gemini-1.5-flash';
 };
 
 const modelId = resolveModelId();
+console.log('[Gemini] Using model:', modelId);
 const genAI = new GoogleGenerativeAI(apiKey);
 const model = genAI.getGenerativeModel({ model: modelId });
 
