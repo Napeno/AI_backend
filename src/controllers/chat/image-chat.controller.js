@@ -5,7 +5,7 @@ const { getMessages, checkIfInternalPrompt } = require('./utils');
 
 const handleImageChat = async (req, res) => {
   try {
-    const { message, sessionId, language = 'en', educationLevel, subjectArea } = req.body;
+    const { message, sessionId, language = 'en', educationLevel, subjectArea, course } = req.body;
     const imageFile = req.file;
     
     console.log('handleImageChat called with:', { 
@@ -45,7 +45,8 @@ const handleImageChat = async (req, res) => {
         sessionId, 
         history: [],
         educationLevel: educationLevel || 'middle',
-        subjectArea: subjectArea || 'natural_sciences'
+        subjectArea: subjectArea || 'natural_sciences',
+        course: course || undefined
       });
       console.log('Created new conversation for user:', req.user._id, 'sessionId:', sessionId);
     } else {
@@ -104,6 +105,7 @@ const handleImageChat = async (req, res) => {
       language,
       conversation.educationLevel,
       conversation.subjectArea,
+      conversation.course,
       imageData ? imageData.url : null // Pass image URL to AI service
     );
     console.log('Got AI response:', aiResponse?.substring(0, 100));

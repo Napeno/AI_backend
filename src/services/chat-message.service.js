@@ -1,10 +1,10 @@
 const { model, extractResponseText } = require('./gemini.service');
 const { buildChatPrompt, filterInternalPrompt } = require('./prompt.service');
 
-const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea, imageUrl = null) => {
+const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea, course = null, imageUrl = null) => {
   try {
     // Build system context from the original user message and prompts
-    const systemContext = buildChatPrompt(message, language, educationLevel, subjectArea);
+    const systemContext = buildChatPrompt(message, language, educationLevel, subjectArea, course);
     console.log('Using system context:', systemContext);
     
     // Filter out system prompts from existing history
@@ -73,8 +73,11 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
     
     const filteredResponse = filterInternalPrompt(responseText, language);
     console.log('Filtered response:', filteredResponse);
-    
-    return filteredResponse;
+
+    // Ensure we never return an empty string to the client
+    return filteredResponse || (language === 'vi' 
+      ? 'Xin lỗi, tớ chưa hiểu yêu cầu. Cậu có thể nói rõ hơn không?' 
+      : "Sorry, I couldn't parse the response. Could you rephrase?");
   } catch (error) {
     console.error('Error in sendMessage:', error);
     throw error;

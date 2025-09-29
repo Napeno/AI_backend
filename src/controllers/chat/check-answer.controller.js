@@ -43,6 +43,7 @@ const checkUserAnswer = async (req, res) => {
       language,
       conversation.educationLevel,
       conversation.subjectArea,
+      conversation.course,
       imageUrl
     );
     
@@ -240,6 +241,7 @@ const checkUserAnswerWithImage = async (req, res) => {
       language,
       conversation.educationLevel,
       conversation.subjectArea,
+      conversation.course,
       imageData ? imageData.url : null
     );
 
