@@ -45,18 +45,43 @@ const makeRequestWithRetry = async (requestFn, maxRetries = 3) => {
   }
 };
 
-const startChat = (history) => {
-  return model.startChat({ history });
+const startChat = (history, options = {}) => {
+  return model.startChat({ history, ...options });
 };
 
 const extractResponseText = (result) => {
-  if (result && result.response) {
-    return result.response.text();
-  } else if (typeof result.text === 'function') {
-    return result.text();
-  } else {
-    throw new Error('Invalid response format from Gemini API');
-  }
+  // Preferred path
+  try {
+    if (result && result.response && typeof result.response.text === 'function') {
+      const txt = result.response.text();
+      if (typeof txt === 'string' && txt.trim()) return txt;
+    }
+  } catch (_) {}
+
+  // Fallback: try direct text function on result
+  try {
+    if (typeof result?.text === 'function') {
+      const txt = result.text();
+      if (typeof txt === 'string' && txt.trim()) return txt;
+    }
+  } catch (_) {}
+
+  // Fallback: stitch text parts from first candidate
+  try {
+    const candidates = result?.response?.candidates;
+    if (Array.isArray(candidates) && candidates.length > 0) {
+      const parts = candidates[0]?.content?.parts || [];
+      const stitched = parts
+        .map(p => (typeof p?.text === 'string' ? p.text : ''))
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+      if (stitched) return stitched;
+    }
+  } catch (_) {}
+
+  // If nothing extracted, return empty string to let callers handle gracefully
+  return '';
 };
 
 module.exports = {
