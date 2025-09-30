@@ -4,7 +4,7 @@ const { getMessages, checkIfInternalPrompt } = require('./utils');
 
 const handleChat = async (req, res) => {
   try {
-    const { message, sessionId, language = 'en', educationLevel, subjectArea, course } = req.body;
+    const { message, sessionId, language = 'en', educationLevel, subjectArea } = req.body;
     console.log('handleChat called with:', { message: message?.substring(0, 50), sessionId, language, educationLevel, subjectArea });
     
     if (!message || !sessionId) {
@@ -28,8 +28,7 @@ const handleChat = async (req, res) => {
         sessionId, 
         history: [],
         educationLevel: educationLevel || 'middle',
-        subjectArea: subjectArea || 'natural_sciences',
-        course: course || undefined
+        subjectArea: subjectArea || 'natural_sciences'
       });
       console.log('Created new conversation for user:', req.user._id, 'sessionId:', sessionId);
     } else {
@@ -51,8 +50,7 @@ const handleChat = async (req, res) => {
       message, 
       language,
       conversation.educationLevel,
-      conversation.subjectArea,
-      conversation.course
+      conversation.subjectArea
     );
     console.log('Got AI response:', aiResponse?.substring(0, 100));
     

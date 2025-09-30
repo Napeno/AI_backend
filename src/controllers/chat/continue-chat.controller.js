@@ -25,8 +25,7 @@ const continueChat = async (req, res) => {
       conversation.history, 
       language,
       conversation.educationLevel,
-      conversation.subjectArea,
-      conversation.course
+      conversation.subjectArea
     );
 
     console.log(JSON.stringify({

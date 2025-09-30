@@ -1,14 +1,10 @@
 const { model, extractResponseText } = require('./gemini.service');
 const { buildChatPrompt, filterInternalPrompt } = require('./prompt.service');
 
-const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea, course = null, imageUrl = null) => {
+const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea, imageUrl = null) => {
   try {
     // Build system context from the original user message and prompts
-    let systemContext = buildChatPrompt(message, language, educationLevel, subjectArea, course);
-    // Strengthen hint-only policy with structured output instruction
-    const jsonInstrVi = 'Chỉ trả về JSON dạng {"hints": ["..."], "question": "..."}. Không tiết lộ toàn bộ lời giải.';
-    const jsonInstrEn = 'Return only JSON of the form {"hints": ["..."], "question": "..."}. Do not reveal the full solution.';
-    systemContext += `\n\n${language === 'vi' ? jsonInstrVi : jsonInstrEn}`;
+    const systemContext = buildChatPrompt(message, language, educationLevel, subjectArea);
     console.log('Using system context:', systemContext);
     
     // Filter out system prompts from existing history
@@ -39,23 +35,8 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
     const chat = model.startChat({ 
       history: geminiHistory,
       generationConfig: {
-        maxOutputTokens: 600,
+        maxOutputTokens: 1000,
         temperature: 0.7,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'object',
-          properties: {
-            hints: {
-              type: 'array',
-              items: { type: 'string' },
-              minItems: 1,
-              maxItems: 3
-            },
-            question: { type: 'string' }
-          },
-          required: ['hints', 'question'],
-          additionalProperties: false
-        }
       },
       systemInstruction: {
         role: 'system',
@@ -89,32 +70,11 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
     
     const responseText = extractResponseText(result);
     console.log('Response text:', responseText);
-
-    // Try to parse structured output to enforce hint-only policy
-    let formattedText = null;
-    try {
-      const json = JSON.parse(responseText);
-      if (json && Array.isArray(json.hints)) {
-        const hints = json.hints
-          .filter(h => typeof h === 'string' && h.trim())
-          .slice(0, 3);
-        const question = typeof json.question === 'string' ? json.question.trim() : '';
-        if (hints.length) {
-          formattedText = `${hints.map((h, i) => `- Gợi ý ${i + 1}: ${h}`).join('\n')}` +
-            (question ? `\n\n${question}` : (language === 'vi' ? '\n\nCậu nghĩ bước tiếp theo là gì?' : '\n\nWhat do you think is the next step?'));
-        }
-      }
-    } catch (_) {
-      // Not JSON; fall back to free text with filter
-    }
-
-    const filteredResponse = filterInternalPrompt(formattedText || responseText, language);
+    
+    const filteredResponse = filterInternalPrompt(responseText, language);
     console.log('Filtered response:', filteredResponse);
     
-    // Ensure we never return an empty string to the client
-    return filteredResponse || (language === 'vi' 
-      ? 'Xin lỗi, tớ chưa hiểu yêu cầu. Cậu có thể nói rõ hơn không?' 
-      : "Sorry, I couldn't parse the response. Could you rephrase?");
+    return filteredResponse;
   } catch (error) {
     console.error('Error in sendMessage:', error);
     throw error;

@@ -69,15 +69,7 @@ const conversationSchema = new mongoose.Schema({
     },
     subjectArea: {
         type: String,
-        enum: [
-            // Elementary
-            'vietnamese', 'mathematics', 'foreign_language', 'ethics', 'natural_social',
-            'history_geography', 'science', 'informatics_technology', 'physical_education', 'arts',
-            // Middle
-            'literature', 'civic_education', 'natural_sciences', 'technology', 'informatics',
-            // High / generalized
-            'social_sciences', 'english_language'
-        ],
+        enum: ['natural_sciences', 'social_sciences', 'mathematics', 'english_language'],
         default: 'natural_sciences',
     },
     course: {
