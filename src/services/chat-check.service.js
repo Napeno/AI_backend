@@ -1,5 +1,5 @@
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
-const { buildCheckAnswerPrompt, filterInternalPrompt } = require('./prompt.service');
+const { buildCheckAnswerPrompt, buildSystemInstruction, filterInternalPrompt } = require('./prompt.service');
 
 const checkUserAnswer = async (history, userAnswer, language = 'en', educationLevel, subjectArea, imageUrl = null) => {
   try {
@@ -25,7 +25,8 @@ const checkUserAnswer = async (history, userAnswer, language = 'en', educationLe
     console.log('Original history length:', history.length);
     console.log('Filtered history for Gemini:', geminiHistory.length);
 
-    const chat = startChat(geminiHistory);
+    const systemInstruction = buildSystemInstruction(language, educationLevel, subjectArea);
+    const chat = startChat(geminiHistory, systemInstruction);
     const prompt = buildCheckAnswerPrompt(userAnswer, language, educationLevel, subjectArea);
 
     console.log('Checking user answer with prompt:', prompt);
@@ -42,12 +43,12 @@ const checkUserAnswer = async (history, userAnswer, language = 'en', educationLe
         if (!response.ok) {
           throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
         }
-        
+
         const arrayBuffer = await response.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
         const base64 = buffer.toString('base64');
         const mimeType = response.headers.get('content-type') || 'image/jpeg';
-        
+
         console.log('Image processed successfully:', {
           mimeType,
           dataLength: base64.length,

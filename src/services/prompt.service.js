@@ -88,6 +88,32 @@ const getPrompts = (language = 'en', educationLevel = 'middle', subjectArea = 'n
   };
 };
 
+const getSystemInstruction = (language = 'en', educationLevel = 'middle', subjectArea = 'natural_sciences', course = null) => {
+  const basePrompts = language === 'vi' ? viPrompts : enPrompts;
+
+  // Validate inputs
+  const validLevel = AVAILABLE_LEVELS.includes(educationLevel) ? educationLevel : 'middle';
+  const validSubject = AVAILABLE_SUBJECTS.includes(subjectArea) ? subjectArea : 'natural_sciences';
+
+  // Get system instruction with course-specific fallback logic
+  const levelInstructions = basePrompts.system_instruction?.[validLevel];
+  if (levelInstructions) {
+    if (course && levelInstructions[course]) {
+      return levelInstructions[course];
+    }
+    if (levelInstructions[validSubject]) {
+      return levelInstructions[validSubject];
+    }
+  }
+
+  // Fallback
+  return basePrompts.system_instruction?.middle?.natural_sciences || "You are a helpful AI assistant.";
+};
+
+const buildSystemInstruction = (language = 'en', educationLevel, subjectArea, course = null) => {
+  return getSystemInstruction(language, educationLevel, subjectArea, course);
+};
+
 const buildChatPrompt = (message, language = 'en', educationLevel, subjectArea, course = null) => {
   const prompts = getPrompts(language, educationLevel, subjectArea, course);
   return prompts.chat.replace('{{message}}', message);
@@ -133,7 +159,7 @@ const filterInternalPrompt = (text, language) => {
       /Bạn là một giáo viên tiếng Anh và văn học tinh tế[\s\S]*?diễn giải sâu hơn\./,
       /Thầy là cô giáo tiếng Anh ấm áp[\s\S]*?nhận thấy hoặc cảm nhận!/
     ];
-    
+
     patterns.forEach(pattern => {
       text = text.replace(pattern, '');
     });
@@ -158,19 +184,19 @@ const filterInternalPrompt = (text, language) => {
       /You are a sophisticated English language and literature companion[\s\S]*?interpretation further\./,
       /You are a warm and encouraging English companion[\s\S]*?notice or feel!/
     ];
-    
+
     patterns.forEach(pattern => {
       text = text.replace(pattern, '');
     });
   }
-  
+
   // Clean up any remaining formatting instructions
   text = text.replace(/\*\*Lưu ý:\*\*[\s\S]*?từ khóa quan trọng/g, '');
   text = text.replace(/\*\*Note:\*\*[\s\S]*?important keywords/g, '');
-  
+
   // Clean up extra whitespace
   text = text.replace(/\n\s*\n\s*\n/g, '\n\n').trim();
-  
+
   return text;
 };
 
@@ -189,6 +215,7 @@ const getAvailableCourses = (educationLevel = null, subjectArea = null) => {
 
 module.exports = {
   getPrompts,
+  buildSystemInstruction,
   buildChatPrompt,
   buildContinuePrompt,
   buildFullAnswerPrompt,

@@ -3,7 +3,6 @@ require('dotenv').config();
 
 // Access your API key as an environment variable
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
 // Helper function for retry logic with exponential backoff
 const makeRequestWithRetry = async (requestFn, maxRetries = 3) => {
@@ -11,28 +10,28 @@ const makeRequestWithRetry = async (requestFn, maxRetries = 3) => {
     try {
       const result = await requestFn();
       console.log('API Response result:', typeof result, result);
-      
+
       // Check if we have a valid response object
       if (!result) {
         console.error('No result returned');
         throw new Error('No response from Gemini API');
       }
-      
+
       // Check if result has response property with text function
       if (result.response && typeof result.response.text === 'function') {
         console.log('Valid response format with response.text function');
         return result;
       }
-      
+
       // Check if result has direct text function
       if (typeof result.text === 'function') {
         console.log('Valid response format with direct text function');
         return result;
       }
-      
+
       console.error('Invalid response format:', result);
       throw new Error('Invalid response format from Gemini API');
-      
+
     } catch (error) {
       if (error.status === 429 && attempt < maxRetries) {
         console.log(`Rate limit hit, waiting before retry ${attempt + 1}/${maxRetries}...`);
@@ -45,7 +44,11 @@ const makeRequestWithRetry = async (requestFn, maxRetries = 3) => {
   }
 };
 
-const startChat = (history) => {
+const startChat = (history, systemInstruction) => {
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash-lite",
+    systemInstruction: systemInstruction
+  });
   return model.startChat({ history });
 };
 
@@ -60,7 +63,6 @@ const extractResponseText = (result) => {
 };
 
 module.exports = {
-  model,
   makeRequestWithRetry,
   startChat,
   extractResponseText,
