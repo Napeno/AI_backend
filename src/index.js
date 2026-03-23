@@ -7,6 +7,7 @@ const authRoutes = require('./routes/auth.route');
 const shopRoutes = require('./routes/shop.route');
 const userRoutes = require('./routes/user.route');
 const leaderboardRoutes = require('./routes/leaderboard.route');
+const quizRoutes = require('./routes/quiz.route');
 const auth = require('./middleware/auth');
 
 // Connect to MongoDB
@@ -30,11 +31,12 @@ app.use('/api/chat', auth, chatRoutes);
 app.use('/api/shop', auth, shopRoutes);
 app.use('/api/user', auth, userRoutes);
 app.use('/api/leaderboard', auth, leaderboardRoutes);
+app.use('/api/quiz', quizRoutes);
 
 app.get('/', (req, res) => {
-    res.send('Chatbot API is running!');
+  res.send('Chatbot API is running!');
 });
 
 app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+  console.log(`Server is running on port ${port}`);
 }); 
