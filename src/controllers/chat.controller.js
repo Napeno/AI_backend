@@ -6,6 +6,7 @@ const { checkUserAnswer, checkUserAnswerWithImage } = require('./chat/check-answ
 const { 
     getConversations, 
     getConversationHistory, 
+    getCurrentIntervention,
     deleteConversation, 
     cleanupDuplicateMessages,
     cleanupAllConversations,
@@ -21,6 +22,7 @@ module.exports = {
     checkUserAnswerWithImage,
     getConversations,
     getConversationHistory,
+    getCurrentIntervention,
     deleteConversation,
     cleanupDuplicateMessages,
     cleanupAllConversations,

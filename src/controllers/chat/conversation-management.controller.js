@@ -1,4 +1,6 @@
 const Conversation = require('../../models/conversation.model');
+const InterventionService = require('../../services/intervention.service');
+const InterventionQuizService = require('../../services/intervention-quiz.service');
 const { getMessages } = require('./utils');
 
 const getConversations = async (req, res) => {
@@ -60,10 +62,58 @@ const getConversationHistory = async (req, res) => {
       return msg.role === 'model' || msg.role === 'continue' || msg.role === 'full-answer' || msg.role === 'check-answer';
     });
 
-    res.json({ history: cleanHistory });
+    res.json({
+      history: cleanHistory,
+      educationLevel: conversation.educationLevel,
+      subjectArea: conversation.subjectArea,
+      course: conversation.course,
+      intervention: InterventionService.buildInactiveIntervention(conversation, req.body?.language || 'en')
+    });
   } catch (error) {
     console.error('Error fetching conversation history:', error);
     res.status(500).json({ message: getMessages(req.body.language || 'en').serverError });
+  }
+};
+
+const getCurrentIntervention = async (req, res) => {
+  try {
+    const { sessionId, language = 'en' } = req.body;
+
+    if (!sessionId) {
+      return res.status(400).json({ message: 'sessionId is required' });
+    }
+
+    const conversation = await Conversation.findOne({
+      user: req.user._id,
+      sessionId
+    });
+
+    if (!conversation) {
+      return res.status(404).json({ message: 'Conversation not found' });
+    }
+
+    const activeGate = conversation.interventionMetrics?.activeGate;
+    if (!activeGate?.active) {
+      return res.json({
+        intervention: InterventionService.buildInactiveIntervention(conversation, language)
+      });
+    }
+
+    const miniQuiz = await InterventionQuizService.ensureMiniQuizForGate(conversation, language);
+    await conversation.save();
+
+    const gatePayload = InterventionService.buildActiveGateResponse(conversation, language);
+    if (miniQuiz) {
+      gatePayload.intervention.miniQuiz = miniQuiz;
+    }
+
+    return res.json({
+      message: gatePayload.message,
+      intervention: gatePayload.intervention
+    });
+  } catch (error) {
+    console.error('Error fetching current intervention:', error);
+    return res.status(500).json({ message: getMessages(req.body.language || 'en').serverError });
   }
 };
 
@@ -225,7 +275,8 @@ const updateConversationSettings = async (req, res) => {
 
 module.exports = {
   getConversations,
-  getConversationHistory,
+    getConversationHistory,
+    getCurrentIntervention,
   deleteConversation,
   cleanupDuplicateMessages,
   cleanupAllConversations,

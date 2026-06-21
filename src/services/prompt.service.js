@@ -131,7 +131,14 @@ const buildFullAnswerPrompt = (language = 'en', educationLevel, subjectArea, cou
 
 const buildCheckAnswerPrompt = (userAnswer, language = 'en', educationLevel, subjectArea, course = null) => {
   const prompts = getPrompts(language, educationLevel, subjectArea, course);
-  return prompts.checkAnswer.replace('{{userAnswer}}', userAnswer);
+  const basePrompts = language === 'vi' ? viPrompts : enPrompts;
+  const formatInstruction = basePrompts.messages?.checkAnswerFormatInstruction || (
+    language === 'vi'
+      ? 'BẮT BUỘC: Bắt đầu phản hồi bằng đúng một nhãn [ĐÚNG] hoặc [SAI]. Sau nhãn chỉ phản hồi và gợi ý sửa, không đưa đáp án hoàn chỉnh.'
+      : 'REQUIRED: Start with exactly one label: [CORRECT] or [INCORRECT]. After the label, give feedback and hints only, not the complete answer.'
+  );
+
+  return `${prompts.checkAnswer.replace('{{userAnswer}}', userAnswer)} ${formatInstruction}`;
 };
 
 // Helper function to filter out internal prompt text
