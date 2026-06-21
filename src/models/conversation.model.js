@@ -52,6 +52,126 @@ const messageSchema = new mongoose.Schema({
     }
 }, { _id: false });
 
+const activeGateSchema = new mongoose.Schema({
+    active: {
+        type: Boolean,
+        default: false,
+    },
+    type: {
+        type: String,
+        required: false,
+    },
+    requiredAction: {
+        type: String,
+        required: false,
+    },
+    level: {
+        type: String,
+        enum: ['green', 'yellow', 'red'],
+        default: 'green',
+    },
+    hintTier: {
+        type: Number,
+        default: 1,
+    },
+    createdAt: {
+        type: Date,
+        required: false,
+    },
+    miniQuiz: {
+        question: {
+            type: String,
+            required: false,
+        },
+        options: [{
+            id: {
+                type: String,
+                required: false,
+            },
+            text: {
+                type: String,
+                required: false,
+            },
+        }],
+        correctOptionId: {
+            type: String,
+            required: false,
+        },
+        explanation: {
+            type: String,
+            required: false,
+        },
+    },
+}, { _id: false });
+
+const interventionMetricsSchema = new mongoose.Schema({
+    hintRequests: {
+        type: Number,
+        default: 0,
+    },
+    lastHintAt: {
+        type: Date,
+        required: false,
+    },
+    rapidHintRequests: {
+        type: Number,
+        default: 0,
+    },
+    answerAttempts: {
+        type: Number,
+        default: 0,
+    },
+    answerChecks: {
+        type: Number,
+        default: 0,
+    },
+    correctAnswers: {
+        type: Number,
+        default: 0,
+    },
+    incorrectAnswers: {
+        type: Number,
+        default: 0,
+    },
+    fullAnswerRequests: {
+        type: Number,
+        default: 0,
+    },
+    gateCompletions: {
+        type: Number,
+        default: 0,
+    },
+    hasAttemptedAnswer: {
+        type: Boolean,
+        default: false,
+    },
+    hasCheckedAnswer: {
+        type: Boolean,
+        default: false,
+    },
+    hasRevisedAfterFeedback: {
+        type: Boolean,
+        default: false,
+    },
+    lastRiskScore: {
+        type: Number,
+        default: 0,
+    },
+    lastRiskLevel: {
+        type: String,
+        enum: ['green', 'yellow', 'red'],
+        default: 'green',
+    },
+    lastInterventionType: {
+        type: String,
+        required: false,
+    },
+    activeGate: {
+        type: activeGateSchema,
+        default: () => ({ active: false }),
+    },
+}, { _id: false });
+
 const conversationSchema = new mongoose.Schema({
     sessionId: {
         type: String,
@@ -76,6 +196,10 @@ const conversationSchema = new mongoose.Schema({
         type: String,
         enum: ['mathematics', 'natural_sciences', 'history', 'geography', 'civics', 'literature', 'foreign_language', 'english_language'],
         required: false,
+    },
+    interventionMetrics: {
+        type: interventionMetricsSchema,
+        default: () => ({}),
     },
     history: [messageSchema],
 }, { timestamps: true });

@@ -3,6 +3,7 @@ const User = require('../../models/user.model'); // Import User model
 const chatService = require('../../services/chat.service');
 const RankingService = require('../../services/ranking.service');
 const ImageUploadService = require('../../services/image-upload.service');
+const InterventionService = require('../../services/intervention.service');
 const { getMessages } = require('./utils');
 
 const checkUserAnswer = async (req, res) => {
@@ -21,6 +22,8 @@ const checkUserAnswer = async (req, res) => {
     if (!conversation) {
       return res.status(404).json({ error: "Conversation not found" });
     }
+
+    InterventionService.recordStudentAttempt(conversation);
 
     // Add check-answer action to conversation history
     const checkAnswerEntry = {
@@ -106,6 +109,12 @@ const checkUserAnswer = async (req, res) => {
       }
     }
 
+    InterventionService.recordAnswerCheck(conversation, isCorrect);
+
+    if (isCorrect === false) {
+      responseText += InterventionService.getFoundationSupportMessage(conversation, language);
+    }
+
     // Save AI's response to conversation, including correctness
     conversation.history.push({
       role: 'model',
@@ -129,7 +138,8 @@ const checkUserAnswer = async (req, res) => {
       totalCoins,
       totalPoints,
       currentRank,
-      pointsAwarded
+      pointsAwarded,
+      intervention: InterventionService.buildInactiveIntervention(conversation, language)
     });
   } catch (error) {
     console.log(JSON.stringify({
@@ -163,6 +173,8 @@ const checkUserAnswerWithImage = async (req, res) => {
     if (!conversation) {
       return res.status(404).json({ error: "Conversation not found" });
     }
+
+    InterventionService.recordStudentAttempt(conversation);
 
     let imageData = null;
     if (imageFile) {
@@ -270,6 +282,12 @@ const checkUserAnswerWithImage = async (req, res) => {
       }
     }
 
+    InterventionService.recordAnswerCheck(conversation, isCorrect);
+
+    if (isCorrect === false) {
+      responseText += InterventionService.getFoundationSupportMessage(conversation, language);
+    }
+
     // Save AI's response to conversation, including correctness
     conversation.history.push({
       role: 'model',
@@ -294,6 +312,7 @@ const checkUserAnswerWithImage = async (req, res) => {
       totalPoints,
       currentRank,
       pointsAwarded,
+      intervention: InterventionService.buildInactiveIntervention(conversation, language),
       imageUrl: imageData ? imageData.url : null
     });
   } catch (error) {

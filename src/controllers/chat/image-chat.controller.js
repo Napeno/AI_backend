@@ -1,6 +1,7 @@
 const Conversation = require('../../models/conversation.model');
 const chatService = require('../../services/chat.service');
 const ImageUploadService = require('../../services/image-upload.service');
+const InterventionService = require('../../services/intervention.service');
 const { getMessages, checkIfInternalPrompt } = require('./utils');
 
 const handleImageChat = async (req, res) => {
@@ -119,6 +120,7 @@ const handleImageChat = async (req, res) => {
     
     res.json({ 
       message: aiResponse,
+      intervention: InterventionService.buildInactiveIntervention(conversation, language),
       imageUrl: imageData ? imageData.url : null
     });
   } catch (error) {

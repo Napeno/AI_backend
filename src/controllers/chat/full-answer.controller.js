@@ -1,9 +1,11 @@
 const Conversation = require('../../models/conversation.model');
 const chatService = require('../../services/chat.service');
+const InterventionService = require('../../services/intervention.service');
+const InterventionQuizService = require('../../services/intervention-quiz.service');
 
 const getFullAnswer = async (req, res) => {
   try {
-    const { sessionId, language = 'en' } = req.body;
+    const { sessionId, language = 'en', gateResponse = null } = req.body;
     
     if (!sessionId) {
       return res.status(400).json({ error: "Session ID is required" });
@@ -12,6 +14,28 @@ const getFullAnswer = async (req, res) => {
     const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
     if (!conversation || conversation.history.length === 0) {
       return res.status(404).json({ error: "Conversation not found" });
+    }
+
+    const gateEvaluation = InterventionService.evaluateFullAnswerRequest(conversation, language, gateResponse);
+
+    if (!gateEvaluation.allowed) {
+      const miniQuiz = await InterventionQuizService.ensureMiniQuizForGate(conversation, language);
+      if (miniQuiz) {
+        gateEvaluation.intervention.miniQuiz = miniQuiz;
+      }
+
+      conversation.history.push({
+        role: 'model',
+        parts: [{ text: gateEvaluation.message }],
+        timestamp: new Date()
+      });
+
+      await conversation.save();
+
+      return res.json({
+        message: gateEvaluation.message,
+        intervention: gateEvaluation.intervention
+      });
     }
 
     // Add full-answer action to conversation history
@@ -48,7 +72,10 @@ const getFullAnswer = async (req, res) => {
     
     await conversation.save();
     
-    res.json({ message: modelResponse });
+    res.json({
+      message: modelResponse,
+      intervention: InterventionService.buildInactiveIntervention(conversation, language)
+    });
   } catch (error) {
     console.log(JSON.stringify({
       event: 'full_answer_error',

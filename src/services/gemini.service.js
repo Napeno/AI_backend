@@ -3,6 +3,7 @@ require('dotenv').config();
 
 // Access your API key as an environment variable
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
 
 // Helper function for retry logic with exponential backoff
 const makeRequestWithRetry = async (requestFn, maxRetries = 3) => {
@@ -46,7 +47,7 @@ const makeRequestWithRetry = async (requestFn, maxRetries = 3) => {
 
 const startChat = (history, systemInstruction) => {
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-lite",
+    model: GEMINI_MODEL,
     systemInstruction: systemInstruction
   });
   return model.startChat({ history });

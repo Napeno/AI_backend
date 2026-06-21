@@ -16,7 +16,10 @@ const getFullAnswer = async (history, language = 'en', educationLevel, subjectAr
     console.log('Original history length:', history.length);
     console.log('Filtered history for Gemini:', geminiHistory.length);
 
-    const systemInstruction = buildSystemInstruction(language, educationLevel, subjectArea);
+    const fullAnswerException = language === 'vi'
+      ? ' NGOẠI LỆ: Ở lượt này học sinh đã vượt qua điều kiện hỗ trợ và được phép nhận lời giải đầy đủ. Hãy trả lời 100% rõ ràng, nhưng vẫn giải thích theo hướng học tập.'
+      : ' EXCEPTION: In this turn the student has passed the support gate and may receive the complete answer. Give 100% of the answer clearly while keeping it educational.';
+    const systemInstruction = `${buildSystemInstruction(language, educationLevel, subjectArea)}${fullAnswerException}`;
     const chat = startChat(geminiHistory, systemInstruction);
     const prompt = buildFullAnswerPrompt(language, educationLevel, subjectArea);
 

@@ -269,6 +269,18 @@
     "welcome": "Chào mừng bạn đến với lớp học! 👋",
     "missingParams": "Thiếu tham số bắt buộc. Vui lòng cung cấp cả tin nhắn và ID phiên.",
     "quotaExceeded": "Đã vượt quá hạn mức API. Vui lòng thử lại sau.",
-    "serverError": "Lỗi máy chủ. Vui lòng thử lại sau."
+    "serverError": "Lỗi máy chủ. Vui lòng thử lại sau.",
+    "checkAnswerFormatInstruction": "BẮT BUỘC: Bắt đầu phản hồi bằng đúng một nhãn [ĐÚNG] hoặc [SAI]. Sau nhãn chỉ phản hồi và gợi ý sửa, không đưa đáp án hoàn chỉnh.",
+    "intervention": {
+      "reflectionGate": "Trước khi nhận thêm gợi ý, em trả lời một câu hỏi nhỏ liên quan đến bài này nhé. Em cũng có thể viết một bước em đang nghĩ.",
+      "fullAnswerGate": "ThinkBridge sẽ chưa mở đáp án đầy đủ ngay. Em trả lời một câu hỏi nhỏ hoặc viết một bước thử làm trước nhé.",
+      "stepByStepGate": "ThinkBridge nhận thấy em đang xin khá nhiều gợi ý mà chưa thử làm. Mình kiểm tra một bước nền tảng thật dễ trước rồi đi tiếp nhé.",
+      "options": [
+        { "id": "understand_question", "label": "Em chưa hiểu đề" },
+        { "id": "formula", "label": "Em không nhớ công thức" },
+        { "id": "start", "label": "Em không biết bắt đầu" },
+        { "id": "calculation", "label": "Em bị sai tính toán" }
+      ]
+    }
   }
 }

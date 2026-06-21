@@ -1,5 +1,6 @@
 const Conversation = require('../../models/conversation.model');
 const chatService = require('../../services/chat.service');
+const InterventionService = require('../../services/intervention.service');
 const { getMessages, checkIfInternalPrompt } = require('./utils');
 
 const handleChat = async (req, res) => {
@@ -63,7 +64,10 @@ const handleChat = async (req, res) => {
     await conversation.save();
     console.log('Saved conversation with', conversation.history.length, 'total messages');
     
-    res.json({ message: aiResponse });
+    res.json({
+      message: aiResponse,
+      intervention: InterventionService.buildInactiveIntervention(conversation, language)
+    });
   } catch (error) {
     console.error('Error in chat service:', error);
     

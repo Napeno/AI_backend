@@ -1,9 +1,11 @@
 const Conversation = require('../../models/conversation.model');
 const chatService = require('../../services/chat.service');
+const InterventionService = require('../../services/intervention.service');
+const InterventionQuizService = require('../../services/intervention-quiz.service');
 
 const continueChat = async (req, res) => {
   try {
-    const { sessionId, language = 'en' } = req.body;
+    const { sessionId, language = 'en', gateResponse = null } = req.body;
     
     if (!sessionId) {
       return res.status(400).json({ error: "Session ID is required" });
@@ -14,6 +16,28 @@ const continueChat = async (req, res) => {
       return res.status(404).json({ error: "Conversation not found" });
     }
 
+    const gateEvaluation = InterventionService.evaluateHintRequest(conversation, language, gateResponse);
+
+    if (!gateEvaluation.allowed) {
+      const miniQuiz = await InterventionQuizService.ensureMiniQuizForGate(conversation, language);
+      if (miniQuiz) {
+        gateEvaluation.intervention.miniQuiz = miniQuiz;
+      }
+
+      conversation.history.push({
+        role: 'model',
+        parts: [{ text: gateEvaluation.message }],
+        timestamp: new Date()
+      });
+
+      await conversation.save();
+
+      return res.json({
+        message: gateEvaluation.message,
+        intervention: gateEvaluation.intervention
+      });
+    }
+
     // Add continue action to conversation history
     conversation.history.push({ 
       role: 'continue',
@@ -21,11 +45,13 @@ const continueChat = async (req, res) => {
       timestamp: new Date()
     });
 
+    const foundationReviewPrompt = InterventionService.getFoundationReviewPrompt(conversation, language);
     const modelResponse = await chatService.getContinuation(
       conversation.history, 
       language,
       conversation.educationLevel,
-      conversation.subjectArea
+      conversation.subjectArea,
+      foundationReviewPrompt
     );
 
     console.log(JSON.stringify({
@@ -48,7 +74,10 @@ const continueChat = async (req, res) => {
     
     await conversation.save();
     
-    res.json({ message: modelResponse });
+    res.json({
+      message: modelResponse,
+      intervention: InterventionService.buildInactiveIntervention(conversation, language)
+    });
   } catch (error) {
     console.log(JSON.stringify({
       event: 'continue_chat_error',
