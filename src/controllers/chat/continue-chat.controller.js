@@ -2,6 +2,7 @@ const Conversation = require('../../models/conversation.model');
 const chatService = require('../../services/chat.service');
 const InterventionService = require('../../services/intervention.service');
 const InterventionQuizService = require('../../services/intervention-quiz.service');
+const { capturePracticeItem } = require('../../services/practice.service');
 
 const continueChat = async (req, res) => {
   try {
@@ -19,9 +20,11 @@ const continueChat = async (req, res) => {
     const gateEvaluation = InterventionService.evaluateHintRequest(conversation, language, gateResponse);
 
     if (!gateEvaluation.allowed) {
-      const miniQuiz = await InterventionQuizService.ensureMiniQuizForGate(conversation, language);
-      if (miniQuiz) {
-        gateEvaluation.intervention.miniQuiz = miniQuiz;
+      if (gateEvaluation.intervention.requiredAction === 'mini_quiz_or_reflection') {
+        const miniQuiz = await InterventionQuizService.ensureMiniQuizForGate(conversation, language);
+        if (miniQuiz) {
+          gateEvaluation.intervention.miniQuiz = miniQuiz;
+        }
       }
 
       conversation.history.push({
@@ -46,12 +49,13 @@ const continueChat = async (req, res) => {
     });
 
     const foundationReviewPrompt = InterventionService.getFoundationReviewPrompt(conversation, language);
+    const blockerSupportPrompt = InterventionService.getBlockerSupportPrompt(gateResponse, language);
     const modelResponse = await chatService.getContinuation(
       conversation.history, 
       language,
       conversation.educationLevel,
       conversation.subjectArea,
-      foundationReviewPrompt
+      foundationReviewPrompt || blockerSupportPrompt
     );
 
     console.log(JSON.stringify({
@@ -73,6 +77,19 @@ const continueChat = async (req, res) => {
     });
     
     await conversation.save();
+
+    if (gateResponse?.type === 'blocker_choice') {
+      try {
+        await capturePracticeItem({
+          userId: req.user._id,
+          conversation,
+          blocker: gateResponse.value,
+          feedback: modelResponse,
+        });
+      } catch (error) {
+        console.error('Error capturing practice item from blocker choice:', error);
+      }
+    }
     
     res.json({
       message: modelResponse,

@@ -103,6 +103,7 @@ Yêu cầu:
 - Có 4 lựa chọn ngắn A, B, C, D.
 - Chỉ có 1 đáp án đúng.
 - Không giải bài chính.
+- Với biểu thức Toán, bọc biểu thức bằng $...$ và dùng cú pháp đơn giản như ^, _, ngoặc; không để dấu $ bị thiếu cặp.
 - Trả về JSON hợp lệ, không markdown, không giải thích ngoài JSON.
 
 Bài học sinh hỏi:
@@ -122,6 +123,7 @@ Requirements:
 - Include 4 short choices A, B, C, D.
 - Exactly 1 correct answer.
 - Do not solve the main problem.
+- For math, wrap each expression in $...$ and use simple ^, _, and parentheses syntax; never leave an unmatched $.
 - Return valid JSON only. No markdown.
 
 Student problem:

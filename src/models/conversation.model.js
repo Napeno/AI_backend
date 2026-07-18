@@ -153,6 +153,14 @@ const interventionMetricsSchema = new mongoose.Schema({
         type: Boolean,
         default: false,
     },
+    identifiedBlocker: {
+        type: Boolean,
+        default: false,
+    },
+    lastBlocker: {
+        type: String,
+        required: false,
+    },
     lastRiskScore: {
         type: Number,
         default: 0,

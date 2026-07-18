@@ -4,6 +4,7 @@ const chatService = require('../../services/chat.service');
 const RankingService = require('../../services/ranking.service');
 const ImageUploadService = require('../../services/image-upload.service');
 const InterventionService = require('../../services/intervention.service');
+const { capturePracticeItem } = require('../../services/practice.service');
 const { getMessages } = require('./utils');
 
 const checkUserAnswer = async (req, res) => {
@@ -124,6 +125,19 @@ const checkUserAnswer = async (req, res) => {
     });
     
     await conversation.save();
+
+    if (isCorrect === false) {
+      try {
+        await capturePracticeItem({
+          userId: req.user._id,
+          conversation,
+          blocker: 'incorrect_answer',
+          feedback: responseText,
+        });
+      } catch (error) {
+        console.error('Error capturing practice item from incorrect answer:', error);
+      }
+    }
     
     // Fetch the updated user to get the latest coin total and points
     const updatedUser = await User.findById(req.user._id);
@@ -297,6 +311,19 @@ const checkUserAnswerWithImage = async (req, res) => {
     });
 
     await conversation.save();
+
+    if (isCorrect === false) {
+      try {
+        await capturePracticeItem({
+          userId: req.user._id,
+          conversation,
+          blocker: 'incorrect_answer',
+          feedback: responseText,
+        });
+      } catch (error) {
+        console.error('Error capturing practice item from incorrect image answer:', error);
+      }
+    }
 
     // Fetch the updated user to get the latest coin total and points
     const updatedUser = await User.findById(req.user._id);

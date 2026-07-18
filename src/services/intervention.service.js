@@ -4,6 +4,7 @@ const viMessages = require('../locales/vi.json');
 const RAPID_HINT_THRESHOLD_MS = 10 * 1000;
 const MAX_EXTRA_HINTS = 4;
 const GATE_RESPONSE_TYPES = ['attempt', 'blocker_choice', 'quiz_choice', 'reflection'];
+const BLOCKER_IDS = ['understand_question', 'formula', 'start', 'calculation'];
 
 const DEFAULT_COPY = {
   vi: {
@@ -65,6 +66,7 @@ const ensureMetrics = (conversation) => {
   metrics.hasAttemptedAnswer ??= false;
   metrics.hasCheckedAnswer ??= false;
   metrics.hasRevisedAfterFeedback ??= false;
+  metrics.identifiedBlocker ??= false;
   metrics.lastRiskScore ??= 0;
   metrics.lastRiskLevel ??= 'green';
   metrics.activeGate ??= { active: false };
@@ -86,6 +88,12 @@ const toPlainMetrics = (metrics) => ({
   hasAttemptedAnswer: !!metrics.hasAttemptedAnswer,
   hasCheckedAnswer: !!metrics.hasCheckedAnswer,
   hasRevisedAfterFeedback: !!metrics.hasRevisedAfterFeedback,
+});
+
+const getProgress = (metrics) => ({
+  identifiedBlocker: !!metrics.identifiedBlocker,
+  attempted: !!metrics.hasAttemptedAnswer,
+  revised: !!metrics.hasRevisedAfterFeedback,
 });
 
 const getHintRisk = (hintRequests = 0) => {
@@ -184,11 +192,12 @@ const buildCurrentGatePayload = (conversation, language = 'en', messageOverride 
       level,
       type,
       requiredAction: gate.requiredAction || 'mini_quiz_or_reflection',
-      options: [],
+      options: gate.requiredAction === 'choose_blocker' ? getCopy(language).options : [],
       miniQuiz: getPublicMiniQuiz(gate.miniQuiz),
       canRequestHint: false,
       canRequestFullAnswer: false,
       hintTier: gate.hintTier || getNextHintTier(metrics),
+      progress: getProgress(metrics),
     },
   };
 };
@@ -204,13 +213,16 @@ const buildInactiveIntervention = (conversation, language = 'en') => {
     requiredAction: null,
     options: getCopy(language).options,
     canRequestHint: (metrics.hintRequests || 0) < MAX_EXTRA_HINTS,
-    canRequestFullAnswer: (metrics.hintRequests || 0) >= MAX_EXTRA_HINTS,
+    canRequestFullAnswer: !!metrics.hasAttemptedAnswer || (metrics.gateCompletions || 0) > 0,
     hintTier: getNextHintTier(metrics),
+    progress: getProgress(metrics),
   };
 };
 
 const buildGateIntervention = (conversation, language, type, level, hintTier) => {
-  const requiredAction = 'mini_quiz_or_reflection';
+  const requiredAction = type === 'blocker_choice_gate'
+    ? 'choose_blocker'
+    : 'mini_quiz_or_reflection';
   const metrics = ensureMetrics(conversation);
 
   metrics.activeGate = {
@@ -240,17 +252,52 @@ const validateGateResponse = (gateResponse) => {
   const type = String(gateResponse.type || '').trim();
   const value = String(gateResponse.value || '').trim();
 
-  if (!GATE_RESPONSE_TYPES.includes(type) || (type !== 'quiz_choice' && value.length < 2) || (type === 'quiz_choice' && value.length < 1)) {
+  if (!GATE_RESPONSE_TYPES.includes(type) ||
+    (type === 'blocker_choice' && !BLOCKER_IDS.includes(value)) ||
+    (type !== 'quiz_choice' && type !== 'blocker_choice' && value.length < 2) ||
+    (type === 'quiz_choice' && value.length < 1)) {
     return null;
   }
 
   return { type, value };
 };
 
-const getIncorrectQuizMessage = (language = 'en') => {
-  return language === 'vi'
-    ? 'Gần đúng rồi, em thử chọn lại câu trắc nghiệm nhỏ này nhé. Câu này chỉ kiểm tra bước nền tảng trước khi mở thêm gợi ý.'
-    : 'Almost there. Try this small multiple-choice check again before opening another hint.';
+const getIncorrectQuizMessage = (miniQuiz, language = 'en') => {
+  const hint = String(miniQuiz?.explanation || '').trim();
+  const prefix = language === 'vi'
+    ? 'Chưa đúng rồi. '
+    : 'Not quite yet. ';
+  const retry = language === 'vi'
+    ? ' Em thử chọn lại nhé.'
+    : ' Try choosing again.';
+  const fallbackHint = language === 'vi'
+    ? 'Hãy xem lại bước nền tảng của câu hỏi này.'
+    : 'Review the foundation step in this question.';
+
+  return `${prefix}${hint ? `Gợi ý: ${hint}` : fallbackHint}${retry}`;
+};
+
+const getBlockerSupportPrompt = (gateResponse, language = 'en') => {
+  const response = validateGateResponse(gateResponse);
+  if (response?.type !== 'blocker_choice') {
+    return null;
+  }
+
+  const prompts = language === 'vi'
+    ? {
+      understand_question: 'Học sinh chưa hiểu đề. Hãy tách ngắn gọn dữ kiện đã cho và điều cần tìm, rồi yêu cầu em nhắc lại một ý. Không giải bài.',
+      formula: 'Học sinh không nhớ công thức. Hãy nhắc đúng khái niệm hoặc công thức cần xét, giải thích khi nào dùng và yêu cầu em xác nhận có phù hợp với bài này không. Không giải bài.',
+      start: 'Học sinh chưa biết bắt đầu. Hãy nêu đúng một thao tác đầu tiên thật cụ thể, rồi hỏi em sẽ làm gì tiếp theo. Không giải bài.',
+      calculation: 'Học sinh nghi sai tính toán. Hãy yêu cầu em kiểm tra một phép tính hoặc một dòng biến đổi cụ thể trước. Không đưa đáp án cuối.',
+    }
+    : {
+      understand_question: 'The student does not understand the problem. Briefly separate the given information from what is asked, then ask the student to repeat one key point. Do not solve it.',
+      formula: 'The student does not remember the formula. Remind the relevant idea or formula, explain when it applies, and ask whether it fits this problem. Do not solve it.',
+      start: 'The student does not know how to start. Give exactly one concrete first action, then ask what they would do next. Do not solve it.',
+      calculation: 'The student thinks the calculation is wrong. Ask them to check one calculation or transformation line first. Do not give the final answer.',
+    };
+
+  return prompts[response.value] || null;
 };
 
 const recordGateResponse = (conversation, gateResponse, language = 'en') => {
@@ -261,13 +308,22 @@ const recordGateResponse = (conversation, gateResponse, language = 'en') => {
 
   const metrics = ensureMetrics(conversation);
 
+  if (validResponse.type === 'blocker_choice') {
+    metrics.identifiedBlocker = true;
+    metrics.lastBlocker = validResponse.value;
+    metrics.activeGate = { active: false };
+    updateRisk(conversation, metrics);
+    markMetricsModified(conversation);
+    return { accepted: true, type: validResponse.type };
+  }
+
   if (validResponse.type === 'quiz_choice') {
     const correctOptionId = metrics.activeGate?.miniQuiz?.correctOptionId;
     if (correctOptionId && validResponse.value !== correctOptionId) {
       const gatePayload = buildCurrentGatePayload(
         conversation,
         language,
-        getIncorrectQuizMessage(language)
+        getIncorrectQuizMessage(metrics.activeGate?.miniQuiz, language)
       );
       markMetricsModified(conversation);
       return {
@@ -292,7 +348,7 @@ const recordGateResponse = (conversation, gateResponse, language = 'en') => {
   updateRisk(conversation, metrics);
   markMetricsModified(conversation);
 
-  return { accepted: true };
+  return { accepted: true, type: validResponse.type };
 };
 
 const projectHintRequest = (metrics, now = new Date()) => {
@@ -364,7 +420,7 @@ const evaluateHintRequest = (conversation, language = 'en', gateResponse = null)
       ...buildGateIntervention(
         conversation,
         language,
-        projectedLevel === 'red' ? 'step_by_step_gate' : 'reflection_gate',
+        projected.hintRequests === 2 ? 'blocker_choice_gate' : 'mini_quiz_gate',
         projectedLevel,
         getNextHintTier(metrics)
       ),
@@ -389,7 +445,7 @@ const recordFullAnswerRequest = (conversation) => {
 
 const evaluateFullAnswerRequest = (conversation, language = 'en', gateResponse = null) => {
   const gateResult = recordGateResponse(conversation, gateResponse, language);
-  const hasGateResponse = gateResult.accepted;
+  const hasGateResponse = gateResult.accepted && gateResult.type !== 'blocker_choice';
 
   if (gateResult.rejected) {
     return {
@@ -399,7 +455,7 @@ const evaluateFullAnswerRequest = (conversation, language = 'en', gateResponse =
     };
   }
 
-  const metrics = hasGateResponse ? ensureMetrics(conversation) : recordFullAnswerRequest(conversation);
+  const metrics = ensureMetrics(conversation);
 
   if (metrics.activeGate?.active && !hasGateResponse) {
     return {
@@ -408,8 +464,13 @@ const evaluateFullAnswerRequest = (conversation, language = 'en', gateResponse =
     };
   }
 
+  if (!hasGateResponse) {
+    recordFullAnswerRequest(conversation);
+  }
+
   const { level } = updateRisk(conversation, metrics);
-  const shouldGate = !hasGateResponse && level !== 'green' && (!metrics.hasAttemptedAnswer || !metrics.hasCheckedAnswer);
+  const canAccessFullAnswer = metrics.hasAttemptedAnswer || metrics.gateCompletions > 0;
+  const shouldGate = !hasGateResponse && !canAccessFullAnswer;
 
   if (shouldGate) {
     return {
@@ -524,6 +585,7 @@ module.exports = {
   evaluateFullAnswerRequest,
   getFoundationReviewPrompt,
   getFoundationSupportMessage,
+  getBlockerSupportPrompt,
   recordAnswerCheck,
   recordGateResponse,
   recordStudentAttempt,

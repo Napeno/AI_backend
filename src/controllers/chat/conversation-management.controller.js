@@ -99,8 +99,12 @@ const getCurrentIntervention = async (req, res) => {
       });
     }
 
-    const miniQuiz = await InterventionQuizService.ensureMiniQuizForGate(conversation, language);
-    await conversation.save();
+    const miniQuiz = activeGate.requiredAction === 'mini_quiz_or_reflection'
+      ? await InterventionQuizService.ensureMiniQuizForGate(conversation, language)
+      : null;
+    if (miniQuiz) {
+      await conversation.save();
+    }
 
     const gatePayload = InterventionService.buildActiveGateResponse(conversation, language);
     if (miniQuiz) {
