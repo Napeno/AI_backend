@@ -1,7 +1,7 @@
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
 const { buildChatPrompt, buildSystemInstruction, filterInternalPrompt } = require('./prompt.service');
 
-const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea, imageUrl = null) => {
+const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea, image = null) => {
   try {
     // Build user prompt from the original user message and prompts
     const userPrompt = buildChatPrompt(message, language, educationLevel, subjectArea);
@@ -40,18 +40,26 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
     const messageParts = [{ text: userPrompt }];
 
     // Add image if provided
-    if (imageUrl) {
-      const response = await fetch(imageUrl);
-      if (!response.ok) {
-        throw new Error(`Unable to read uploaded image: ${response.status}`);
+    if (image) {
+      let buffer;
+      let mimeType;
+      if (image.buffer) {
+        buffer = image.buffer;
+        mimeType = image.mimetype || 'image/jpeg';
+      } else {
+        const response = await fetch(image);
+        if (!response.ok) {
+          const error = new Error(`Unable to read uploaded image: ${response.status}`);
+          error.stage = 'read_uploaded_image';
+          throw error;
+        }
+        buffer = Buffer.from(await response.arrayBuffer());
+        mimeType = response.headers.get('content-type') || 'image/jpeg';
       }
-      const buffer = await response.arrayBuffer();
-      const base64Data = Buffer.from(buffer).toString('base64');
-      const mimeType = response.headers.get('content-type') || 'image/jpeg';
 
       messageParts.push({
         inlineData: {
-          data: base64Data,
+          data: Buffer.from(buffer).toString('base64'),
           mimeType: mimeType
         }
       });

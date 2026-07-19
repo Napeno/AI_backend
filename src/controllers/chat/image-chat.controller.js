@@ -109,7 +109,7 @@ const handleImageChat = async (req, res) => {
       language,
       conversation.educationLevel,
       conversation.subjectArea,
-      imageData ? imageData.url : null // Pass image URL to AI service
+      imageFile ? { buffer: imageFile.buffer, mimetype: imageFile.mimetype } : null
     );
     console.log('Got AI response:', aiResponse?.substring(0, 100));
     
@@ -129,7 +129,12 @@ const handleImageChat = async (req, res) => {
       problemContext: toPublicProblemContext(conversation.problemContext)
     });
   } catch (error) {
-    console.error('Error in image chat service:', error);
+    console.error(JSON.stringify({
+      event: 'image_chat_error',
+      stage: error.stage || 'send_message',
+      status: error.status || error.statusCode || null,
+      message: error.message,
+    }));
     
     // Get language from request body for error messages
     const requestLanguage = req.body.language || 'en';
@@ -140,8 +145,11 @@ const handleImageChat = async (req, res) => {
       });
     }
     
-    res.status(500).json({ 
-      message: getMessages(requestLanguage).serverError 
+    res.status(500).json({
+      message: requestLanguage === 'vi'
+        ? 'Không thể xử lý ảnh này. Vui lòng thử lại với ảnh rõ hơn hoặc gửi câu hỏi bằng chữ.'
+        : 'We could not process this image. Please try a clearer image or send the question as text.',
+      errorCode: error.stage || 'image_processing_failed'
     });
   }
 };
