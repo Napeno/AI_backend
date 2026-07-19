@@ -1,4 +1,4 @@
-const { startChat, extractResponseText } = require('./gemini.service');
+const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
 const { buildChatPrompt, buildSystemInstruction, filterInternalPrompt } = require('./prompt.service');
 
 const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea, imageUrl = null) => {
@@ -42,9 +42,12 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
     // Add image if provided
     if (imageUrl) {
       const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(`Unable to read uploaded image: ${response.status}`);
+      }
       const buffer = await response.arrayBuffer();
       const base64Data = Buffer.from(buffer).toString('base64');
-      const mimeType = response.headers.get('content-type');
+      const mimeType = response.headers.get('content-type') || 'image/jpeg';
 
       messageParts.push({
         inlineData: {
@@ -55,7 +58,7 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
     }
 
     // Send message with parts
-    const result = await chat.sendMessage(messageParts);
+    const result = await makeRequestWithRetry(() => chat.sendMessage(messageParts));
     console.log('Response from Gemini:', result);
     console.log('Result type:', typeof result);
     console.log('Result keys:', Object.keys(result));
@@ -75,4 +78,4 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
 
 module.exports = {
   sendMessage,
-}; 
+};
