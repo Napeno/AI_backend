@@ -2,6 +2,7 @@ const Conversation = require('../../models/conversation.model');
 const chatService = require('../../services/chat.service');
 const ImageUploadService = require('../../services/image-upload.service');
 const InterventionService = require('../../services/intervention.service');
+const { setImageProblemContext, toPublicProblemContext } = require('../../services/problem-context.service');
 const { getMessages, checkIfInternalPrompt } = require('./utils');
 
 const handleImageChat = async (req, res) => {
@@ -95,6 +96,9 @@ const handleImageChat = async (req, res) => {
       }
 
       conversation.history.push(userMessage);
+      if (imageData) {
+        await setImageProblemContext(conversation, { sourceText: finalMessage, image: imageData, language });
+      }
       console.log('Added user message with image to history');
     }
 
@@ -121,7 +125,8 @@ const handleImageChat = async (req, res) => {
     res.json({ 
       message: aiResponse,
       intervention: InterventionService.buildInactiveIntervention(conversation, language),
-      imageUrl: imageData ? imageData.url : null
+      imageUrl: imageData ? imageData.url : null,
+      problemContext: toPublicProblemContext(conversation.problemContext)
     });
   } catch (error) {
     console.error('Error in image chat service:', error);

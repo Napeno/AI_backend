@@ -2,6 +2,7 @@ const Conversation = require('../../models/conversation.model');
 const InterventionService = require('../../services/intervention.service');
 const InterventionQuizService = require('../../services/intervention-quiz.service');
 const { getMessages } = require('./utils');
+const { setActiveQuestion, toPublicProblemContext } = require('../../services/problem-context.service');
 
 const getConversations = async (req, res) => {
   try {
@@ -67,11 +68,28 @@ const getConversationHistory = async (req, res) => {
       educationLevel: conversation.educationLevel,
       subjectArea: conversation.subjectArea,
       course: conversation.course,
+      problemContext: toPublicProblemContext(conversation.problemContext),
       intervention: InterventionService.buildInactiveIntervention(conversation, req.body?.language || 'en')
     });
   } catch (error) {
     console.error('Error fetching conversation history:', error);
     res.status(500).json({ message: getMessages(req.body.language || 'en').serverError });
+  }
+};
+
+const updateProblemContext = async (req, res) => {
+  try {
+    const { sessionId, questionId } = req.body;
+    if (!sessionId || !questionId) return res.status(400).json({ message: 'sessionId and questionId are required' });
+    const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
+    if (!conversation) return res.status(404).json({ message: 'Conversation not found' });
+    const problemContext = setActiveQuestion(conversation, String(questionId).toLowerCase());
+    if (!problemContext) return res.status(400).json({ message: 'Question is not in the current problem context' });
+    await conversation.save();
+    return res.json({ problemContext });
+  } catch (error) {
+    console.error('Error updating problem context:', error);
+    return res.status(500).json({ message: 'Internal server error' });
   }
 };
 
@@ -281,6 +299,7 @@ module.exports = {
   getConversations,
     getConversationHistory,
     getCurrentIntervention,
+  updateProblemContext,
   deleteConversation,
   cleanupDuplicateMessages,
   cleanupAllConversations,

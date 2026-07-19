@@ -1,6 +1,48 @@
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
 const { buildCheckAnswerPrompt, buildSystemInstruction, filterInternalPrompt } = require('./prompt.service');
 
+const getProblemContext = (history = []) => {
+  const sourceIndex = [...history].map(message => message.role).lastIndexOf('user');
+  if (sourceIndex === -1) {
+    return { imageUrl: null, text: '' };
+  }
+
+  const sourceMessage = history[sourceIndex];
+  const text = history
+    .slice(sourceIndex)
+    .filter(message => message.role === 'user' || message.role === 'model')
+    .map(message => `${message.role === 'user' ? 'Đề bài' : 'Gợi ý'}: ${message.parts?.map(part => part.text || '').join('\n')}`)
+    .join('\n\n')
+    .slice(0, 5000);
+
+  return {
+    imageUrl: sourceMessage.parts?.find(part => part.image?.url)?.image.url || null,
+    text,
+  };
+};
+
+const appendImagePart = async (messageParts, imageUrl, label) => {
+  if (!imageUrl) return;
+
+  try {
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    messageParts.push({ text: label });
+    messageParts.push({
+      inlineData: {
+        mimeType: response.headers.get('content-type') || 'image/jpeg',
+        data: Buffer.from(arrayBuffer).toString('base64'),
+      },
+    });
+  } catch (error) {
+    console.error(`Error adding ${label.toLowerCase()}:`, error.message);
+  }
+};
+
 const checkUserAnswer = async (history, userAnswer, language = 'en', educationLevel, subjectArea, imageUrl = null) => {
   try {
     // Filter history to only include roles that Gemini API accepts: user, model, function, system
@@ -25,47 +67,26 @@ const checkUserAnswer = async (history, userAnswer, language = 'en', educationLe
     console.log('Original history length:', history.length);
     console.log('Filtered history for Gemini:', geminiHistory.length);
 
+    const problemContext = getProblemContext(history);
     const systemInstruction = buildSystemInstruction(language, educationLevel, subjectArea);
     const chat = startChat(geminiHistory, systemInstruction);
-    const prompt = buildCheckAnswerPrompt(userAnswer, language, educationLevel, subjectArea);
+    const prompt = buildCheckAnswerPrompt(userAnswer, language, educationLevel, subjectArea, null, problemContext.text);
 
     console.log('Checking user answer with prompt:', prompt);
 
     // Prepare message parts for sending
     const messageParts = [{ text: prompt }];
 
-    // Add image if provided
-    if (imageUrl) {
-      console.log('Adding image to check answer request:', imageUrl);
-      // For Gemini, we need to convert the image URL to base64 or use inline data
-      try {
-        const response = await fetch(imageUrl);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
-        }
-
-        const arrayBuffer = await response.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const base64 = buffer.toString('base64');
-        const mimeType = response.headers.get('content-type') || 'image/jpeg';
-
-        console.log('Image processed successfully:', {
-          mimeType,
-          dataLength: base64.length,
-          imageUrl: imageUrl.substring(0, 50) + '...'
-        });
-
-        messageParts.push({
-          inlineData: {
-            mimeType: mimeType,
-            data: base64
-          }
-        });
-      } catch (imageError) {
-        console.error('Error processing image for check answer:', imageError);
-        // Continue without image if there's an error
-      }
-    }
+    await appendImagePart(
+      messageParts,
+      problemContext.imageUrl,
+      language === 'vi' ? 'Ảnh đề gốc:' : 'Original problem image:'
+    );
+    await appendImagePart(
+      messageParts,
+      imageUrl,
+      language === 'vi' ? 'Ảnh bài làm của học sinh:' : 'Student answer image:'
+    );
 
     console.log('Sending message to Gemini with parts:', messageParts.map(part => ({
       hasText: !!part.text,
@@ -97,4 +118,5 @@ const checkUserAnswer = async (history, userAnswer, language = 'en', educationLe
 
 module.exports = {
   checkUserAnswer,
-}; 
+  getProblemContext,
+};

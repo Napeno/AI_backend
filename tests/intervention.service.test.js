@@ -4,6 +4,7 @@ const InterventionService = require('../src/services/intervention.service');
 const { parseCheckAnswerResponse } = require('../src/controllers/chat/check-answer.controller');
 const { getErrorDetails } = require('../src/controllers/chat/continue-chat.controller');
 const { buildCheckAnswerPrompt, normalizeMathAnswer } = require('../src/services/prompt.service');
+const { getProblemContext } = require('../src/services/chat-check.service');
 
 const createConversation = () => ({
   interventionMetrics: {},
@@ -112,6 +113,21 @@ test('normalizes common math operators before asking Gemini to grade', () => {
   assert.equal(normalized, 'y² - 3 × 2 × y + 3 ^ 2 = (y - 3) ^ 2');
   assert.match(buildCheckAnswerPrompt(answer, 'vi', 'middle', 'mathematics'), /3 × 2 × y/);
   assert.match(buildCheckAnswerPrompt(answer, 'vi', 'middle', 'mathematics'), /không ghép các thừa số/);
+});
+
+test('adds the current problem and its image to the answer-check context', () => {
+  const context = getProblemContext([
+    { role: 'user', parts: [{ text: 'Giải bài trong ảnh', image: { url: 'https://example.test/problem.png' } }] },
+    { role: 'model', parts: [{ text: 'Với câu d), ta có x² - x + 1/4.' }] },
+    { role: 'check-answer', parts: [{ text: 'Đang kiểm tra câu trả lời.' }] },
+  ]);
+
+  assert.equal(context.imageUrl, 'https://example.test/problem.png');
+  assert.match(context.text, /x² - x \+ 1\/4/);
+  assert.match(
+    buildCheckAnswerPrompt('(x-1/2)^2 đúng không?', 'vi', 'middle', 'mathematics', null, context.text),
+    /NGỮ CẢNH ĐỀ GỐC/
+  );
 });
 
 test('logs Gemini error details without serializing the whole request', () => {

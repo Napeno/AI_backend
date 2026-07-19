@@ -138,7 +138,7 @@ const normalizeMathAnswer = (answer) => String(answer || '')
   .replace(/\s+/g, ' ')
   .trim();
 
-const buildCheckAnswerPrompt = (userAnswer, language = 'en', educationLevel, subjectArea, course = null) => {
+const buildCheckAnswerPrompt = (userAnswer, language = 'en', educationLevel, subjectArea, course = null, problemContext = '') => {
   const prompts = getPrompts(language, educationLevel, subjectArea, course);
   const basePrompts = language === 'vi' ? viPrompts : enPrompts;
   const answerForReview = subjectArea === 'mathematics' ? normalizeMathAnswer(userAnswer) : userAnswer;
@@ -149,11 +149,16 @@ const buildCheckAnswerPrompt = (userAnswer, language = 'en', educationLevel, sub
   );
   const mathInstruction = subjectArea === 'mathematics'
     ? (language === 'vi'
-      ? 'BÀI TOÁN: Dấu × là phép nhân; tuyệt đối không ghép các thừa số thành chữ số mới. Hãy kiểm tra tương đương đại số (khai triển hoặc thay giá trị) trước khi kết luận. Biểu thức dưới đây đã được chuẩn hóa và là nguồn duy nhất để chấm.'
-      : 'MATH: × means multiplication; never concatenate factors into a new number. Check algebraic equivalence by expansion or substitution before deciding. The normalized expression below is the only expression to grade.')
+      ? 'BÀI TOÁN: Dấu × là phép nhân; tuyệt đối không ghép các thừa số thành chữ số mới. Đối chiếu câu trả lời với đề gốc và kiểm tra tương đương đại số (khai triển hoặc thay giá trị) trước khi kết luận. Câu trả lời có thể kết thúc bằng “đúng không?”; hãy chấm biểu thức, không chấm câu hỏi đó.'
+      : 'MATH: × means multiplication; never concatenate factors into a new number. Compare the answer with the original problem and check algebraic equivalence by expansion or substitution before deciding. The student may end with “is this correct?”; grade the expression, not that question.')
+    : '';
+  const contextInstruction = String(problemContext || '').trim()
+    ? (language === 'vi'
+      ? `NGỮ CẢNH ĐỀ GỐC VÀ CÁC GỢI Ý LIÊN QUAN:\n${problemContext}`
+      : `ORIGINAL PROBLEM CONTEXT AND RELEVANT HINTS:\n${problemContext}`)
     : '';
 
-  return `${prompts.checkAnswer.replace('{{userAnswer}}', answerForReview)} ${mathInstruction} ${formatInstruction}`.trim();
+  return `${contextInstruction}\n${prompts.checkAnswer.replace('{{userAnswer}}', answerForReview)} ${mathInstruction} ${formatInstruction}`.trim();
 };
 
 // Helper function to filter out internal prompt text
