@@ -129,16 +129,31 @@ const buildFullAnswerPrompt = (language = 'en', educationLevel, subjectArea, cou
   return prompts.fullAnswer;
 };
 
+const normalizeMathAnswer = (answer) => String(answer || '')
+  .replace(/\*\*/g, '^')
+  .replace(/[×·*]/g, ' × ')
+  .replace(/[÷]/g, ' / ')
+  .replace(/[−–—]/g, '-')
+  .replace(/\s*([=+\-/^])\s*/g, ' $1 ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
 const buildCheckAnswerPrompt = (userAnswer, language = 'en', educationLevel, subjectArea, course = null) => {
   const prompts = getPrompts(language, educationLevel, subjectArea, course);
   const basePrompts = language === 'vi' ? viPrompts : enPrompts;
+  const answerForReview = subjectArea === 'mathematics' ? normalizeMathAnswer(userAnswer) : userAnswer;
   const formatInstruction = basePrompts.messages?.checkAnswerFormatInstruction || (
     language === 'vi'
-      ? 'BẮT BUỘC: Bắt đầu bằng [ATTEMPT] hoặc [NOT_ATTEMPT], rồi [ĐÚNG] hoặc [SAI]. [ATTEMPT] chỉ dùng khi học sinh đã viết một bước làm liên quan; nếu chưa, hãy đưa một gợi ý ngắn để em bắt đầu. Không đưa đáp án hoàn chỉnh.'
-      : 'REQUIRED: Start with [ATTEMPT] or [NOT_ATTEMPT], then [CORRECT] or [INCORRECT]. Use [ATTEMPT] only for a relevant working step; otherwise give one short prompt to start. Do not give the complete answer.'
+      ? 'BẮT BUỘC: Bắt đầu bằng [ATTEMPT] hoặc [NOT_ATTEMPT], rồi [ĐÚNG], [SAI] hoặc [UNCERTAIN]. [ATTEMPT] chỉ dùng khi học sinh đã viết một bước làm liên quan. Chỉ dùng [SAI] khi đã kiểm tra chắc chắn; nếu ký hiệu hoặc dữ kiện chưa đủ rõ, dùng [UNCERTAIN] và hỏi đúng một điều cần làm rõ. Không đưa đáp án hoàn chỉnh.'
+      : 'REQUIRED: Start with [ATTEMPT] or [NOT_ATTEMPT], then [CORRECT], [INCORRECT], or [UNCERTAIN]. Use [ATTEMPT] only for a relevant working step. Use [INCORRECT] only when certain; otherwise use [UNCERTAIN] and ask one clarification. Do not give the complete answer.'
   );
+  const mathInstruction = subjectArea === 'mathematics'
+    ? (language === 'vi'
+      ? 'BÀI TOÁN: Dấu × là phép nhân; tuyệt đối không ghép các thừa số thành chữ số mới. Hãy kiểm tra tương đương đại số (khai triển hoặc thay giá trị) trước khi kết luận. Biểu thức dưới đây đã được chuẩn hóa và là nguồn duy nhất để chấm.'
+      : 'MATH: × means multiplication; never concatenate factors into a new number. Check algebraic equivalence by expansion or substitution before deciding. The normalized expression below is the only expression to grade.')
+    : '';
 
-  return `${prompts.checkAnswer.replace('{{userAnswer}}', userAnswer)} ${formatInstruction}`;
+  return `${prompts.checkAnswer.replace('{{userAnswer}}', answerForReview)} ${mathInstruction} ${formatInstruction}`.trim();
 };
 
 // Helper function to filter out internal prompt text
@@ -227,6 +242,7 @@ module.exports = {
   buildContinuePrompt,
   buildFullAnswerPrompt,
   buildCheckAnswerPrompt,
+  normalizeMathAnswer,
   filterInternalPrompt,
   getAvailableSubjects,
   getAvailableLevels,

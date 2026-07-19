@@ -44,6 +44,14 @@ const parseCheckAnswerResponse = (modelResponse) => {
     };
   }
 
+  if (responseText.startsWith('[UNCERTAIN]')) {
+    return {
+      isCorrect: null,
+      isMeaningfulAttempt,
+      responseText: responseText.substring('[UNCERTAIN]'.length).trim(),
+    };
+  }
+
   return { isCorrect: null, isMeaningfulAttempt, responseText };
 };
 
