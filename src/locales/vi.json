@@ -270,7 +270,7 @@
     "missingParams": "Thiếu tham số bắt buộc. Vui lòng cung cấp cả tin nhắn và ID phiên.",
     "quotaExceeded": "Đã vượt quá hạn mức API. Vui lòng thử lại sau.",
     "serverError": "Lỗi máy chủ. Vui lòng thử lại sau.",
-    "checkAnswerFormatInstruction": "BẮT BUỘC: Bắt đầu bằng [ATTEMPT] hoặc [NOT_ATTEMPT], rồi [ĐÚNG] hoặc [SAI]. [ATTEMPT] chỉ dùng khi học sinh đã viết một bước làm liên quan; nếu chưa, hãy đưa một gợi ý ngắn để em bắt đầu. Không đưa đáp án hoàn chỉnh.",
+    "checkAnswerFormatInstruction": "BẮT BUỘC: Bắt đầu bằng [ATTEMPT] hoặc [NOT_ATTEMPT], rồi [ĐÚNG], [SAI] hoặc [UNCERTAIN]. [ATTEMPT] chỉ dùng khi học sinh đã viết một bước làm liên quan. Chỉ dùng [SAI] khi đã kiểm tra chắc chắn; nếu ký hiệu hoặc dữ kiện chưa đủ rõ, dùng [UNCERTAIN] và hỏi đúng một điều cần làm rõ. Không đưa đáp án hoàn chỉnh.",
     "intervention": {
       "reflectionGate": "Trước khi nhận thêm gợi ý, em trả lời một câu hỏi nhỏ liên quan đến bài này nhé. Em cũng có thể viết một bước em đang nghĩ.",
       "fullAnswerGate": "ThinkBridge sẽ chưa mở đáp án đầy đủ ngay. Em trả lời một câu hỏi nhỏ hoặc viết một bước thử làm trước nhé.",

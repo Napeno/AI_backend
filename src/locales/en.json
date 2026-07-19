@@ -325,7 +325,7 @@
     "missingParams": "Missing required parameters. Please provide both message and sessionId.",
     "quotaExceeded": "API quota exceeded. Please try again later.",
     "serverError": "Server error occurred. Please try again later.",
-    "checkAnswerFormatInstruction": "REQUIRED: Start with [ATTEMPT] or [NOT_ATTEMPT], then [CORRECT] or [INCORRECT]. Use [ATTEMPT] only for a relevant working step; otherwise give one short prompt to start. Do not give the complete answer.",
+    "checkAnswerFormatInstruction": "REQUIRED: Start with [ATTEMPT] or [NOT_ATTEMPT], then [CORRECT], [INCORRECT], or [UNCERTAIN]. Use [ATTEMPT] only for a relevant working step. Use [INCORRECT] only when certain; otherwise use [UNCERTAIN] and ask one clarification. Do not give the complete answer.",
     "intervention": {
       "reflectionGate": "Before another hint, answer one small question related to this problem. You can also write one step you are thinking about.",
       "fullAnswerGate": "ThinkBridge will not open the full answer just yet. Answer one small question or write one attempted step first.",

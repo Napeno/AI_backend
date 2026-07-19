@@ -3,6 +3,7 @@ const test = require('node:test');
 const InterventionService = require('../src/services/intervention.service');
 const { parseCheckAnswerResponse } = require('../src/controllers/chat/check-answer.controller');
 const { getErrorDetails } = require('../src/controllers/chat/continue-chat.controller');
+const { buildCheckAnswerPrompt, normalizeMathAnswer } = require('../src/services/prompt.service');
 
 const createConversation = () => ({
   interventionMetrics: {},
@@ -93,6 +94,24 @@ test('parses and removes attempt and correctness labels from answer feedback', (
       responseText: 'Em hãy thử viết công thức trước nhé.',
     }
   );
+
+  assert.deepEqual(
+    parseCheckAnswerResponse('[ATTEMPT] [UNCERTAIN] Em cần biết dấu này có phải phép nhân không.'),
+    {
+      isCorrect: null,
+      isMeaningfulAttempt: true,
+      responseText: 'Em cần biết dấu này có phải phép nhân không.',
+    }
+  );
+});
+
+test('normalizes common math operators before asking Gemini to grade', () => {
+  const answer = 'y² − 3*2*y + 3**2 = (y–3)^2';
+  const normalized = normalizeMathAnswer(answer);
+
+  assert.equal(normalized, 'y² - 3 × 2 × y + 3 ^ 2 = (y - 3) ^ 2');
+  assert.match(buildCheckAnswerPrompt(answer, 'vi', 'middle', 'mathematics'), /3 × 2 × y/);
+  assert.match(buildCheckAnswerPrompt(answer, 'vi', 'middle', 'mathematics'), /không ghép các thừa số/);
 });
 
 test('logs Gemini error details without serializing the whole request', () => {
