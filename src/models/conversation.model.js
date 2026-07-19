@@ -145,6 +145,10 @@ const interventionMetricsSchema = new mongoose.Schema({
         type: Boolean,
         default: false,
     },
+    hasMeaningfulAttempt: {
+        type: Boolean,
+        default: false,
+    },
     hasCheckedAnswer: {
         type: Boolean,
         default: false,
