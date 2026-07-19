@@ -64,6 +64,7 @@ const ensureMetrics = (conversation) => {
   metrics.fullAnswerRequests ??= 0;
   metrics.gateCompletions ??= 0;
   metrics.hasAttemptedAnswer ??= false;
+  metrics.hasMeaningfulAttempt ??= false;
   metrics.hasCheckedAnswer ??= false;
   metrics.hasRevisedAfterFeedback ??= false;
   metrics.identifiedBlocker ??= false;
@@ -86,6 +87,7 @@ const toPlainMetrics = (metrics) => ({
   fullAnswerRequests: metrics.fullAnswerRequests || 0,
   gateCompletions: metrics.gateCompletions || 0,
   hasAttemptedAnswer: !!metrics.hasAttemptedAnswer,
+  hasMeaningfulAttempt: !!metrics.hasMeaningfulAttempt,
   hasCheckedAnswer: !!metrics.hasCheckedAnswer,
   hasRevisedAfterFeedback: !!metrics.hasRevisedAfterFeedback,
 });
@@ -94,6 +96,12 @@ const getProgress = (metrics) => ({
   identifiedBlocker: !!metrics.identifiedBlocker,
   attempted: !!metrics.hasAttemptedAnswer,
   revised: !!metrics.hasRevisedAfterFeedback,
+});
+
+const getFullAnswerRequirements = (metrics) => ({
+  hintsUsed: Math.min(metrics.hintRequests || 0, MAX_EXTRA_HINTS),
+  hintsRequired: MAX_EXTRA_HINTS,
+  hasMeaningfulAttempt: !!metrics.hasMeaningfulAttempt,
 });
 
 const getHintRisk = (hintRequests = 0) => {
@@ -196,6 +204,7 @@ const buildCurrentGatePayload = (conversation, language = 'en', messageOverride 
       miniQuiz: getPublicMiniQuiz(gate.miniQuiz),
       canRequestHint: false,
       canRequestFullAnswer: false,
+      fullAnswerRequirements: getFullAnswerRequirements(metrics),
       hintTier: gate.hintTier || getNextHintTier(metrics),
       progress: getProgress(metrics),
     },
@@ -205,6 +214,7 @@ const buildCurrentGatePayload = (conversation, language = 'en', messageOverride 
 const buildInactiveIntervention = (conversation, language = 'en') => {
   const metrics = ensureMetrics(conversation);
   const { level } = updateRisk(conversation, metrics);
+  const fullAnswerRequirements = getFullAnswerRequirements(metrics);
 
   return {
     active: false,
@@ -213,7 +223,8 @@ const buildInactiveIntervention = (conversation, language = 'en') => {
     requiredAction: null,
     options: getCopy(language).options,
     canRequestHint: (metrics.hintRequests || 0) < MAX_EXTRA_HINTS,
-    canRequestFullAnswer: (metrics.hintRequests || 0) >= MAX_EXTRA_HINTS,
+    canRequestFullAnswer: fullAnswerRequirements.hintsUsed >= MAX_EXTRA_HINTS && fullAnswerRequirements.hasMeaningfulAttempt,
+    fullAnswerRequirements,
     hintTier: getNextHintTier(metrics),
     progress: getProgress(metrics),
   };
@@ -335,14 +346,6 @@ const recordGateResponse = (conversation, gateResponse, language = 'en') => {
   }
 
   metrics.gateCompletions += 1;
-
-  if (validResponse.type === 'attempt' || validResponse.type === 'reflection' || validResponse.type === 'quiz_choice') {
-    metrics.hasAttemptedAnswer = true;
-    metrics.answerAttempts += 1;
-    if (metrics.answerChecks > 0 || metrics.incorrectAnswers > 0) {
-      metrics.hasRevisedAfterFeedback = true;
-    }
-  }
 
   metrics.activeGate = { active: false };
   updateRisk(conversation, metrics);
@@ -469,16 +472,21 @@ const evaluateFullAnswerRequest = (conversation, language = 'en', gateResponse =
   }
 
   updateRisk(conversation, metrics);
-  const canAccessFullAnswer = (metrics.hintRequests || 0) >= MAX_EXTRA_HINTS;
+  const fullAnswerRequirements = getFullAnswerRequirements(metrics);
+  const canAccessFullAnswer = fullAnswerRequirements.hintsUsed >= MAX_EXTRA_HINTS && fullAnswerRequirements.hasMeaningfulAttempt;
 
   if (!canAccessFullAnswer) {
     metrics.activeGate = { active: false };
     markMetricsModified(conversation);
     return {
       allowed: false,
-      message: language === 'vi'
-        ? 'Em hãy dùng hết các gợi ý trước nhé. Khi đã nhận đủ 4 gợi ý, nút xem lời giải đầy đủ sẽ hiện ra.'
-        : 'Please use all the hints first. The full-answer button appears after all 4 hints.',
+      message: fullAnswerRequirements.hintsUsed < MAX_EXTRA_HINTS
+        ? (language === 'vi'
+          ? 'Em hãy dùng hết các gợi ý trước nhé. Khi đã nhận đủ 4 gợi ý, nút xem lời giải đầy đủ sẽ hiện ra.'
+          : 'Please use all the hints first. The full-answer button appears after all 4 hints.')
+        : (language === 'vi'
+          ? 'Em đã nhận đủ gợi ý rồi. Hãy gửi một bước em đã làm ở ô kiểm tra câu trả lời để mình mở lời giải đầy đủ nhé.'
+          : 'You have received all hints. Submit one relevant step in the answer check so I can unlock the full solution.'),
       intervention: buildInactiveIntervention(conversation, language),
     };
   }
@@ -492,10 +500,11 @@ const evaluateFullAnswerRequest = (conversation, language = 'en', gateResponse =
   };
 };
 
-const recordStudentAttempt = (conversation) => {
+const recordStudentAttempt = (conversation, hasMeaningfulAttempt = false) => {
   const metrics = ensureMetrics(conversation);
   metrics.answerAttempts += 1;
   metrics.hasAttemptedAnswer = true;
+  metrics.hasMeaningfulAttempt ||= hasMeaningfulAttempt;
 
   if (metrics.answerChecks > 0 || metrics.incorrectAnswers > 0) {
     metrics.hasRevisedAfterFeedback = true;

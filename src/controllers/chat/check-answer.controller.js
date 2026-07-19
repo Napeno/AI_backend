@@ -7,6 +7,46 @@ const InterventionService = require('../../services/intervention.service');
 const { capturePracticeItem } = require('../../services/practice.service');
 const { getMessages } = require('./utils');
 
+const parseCheckAnswerResponse = (modelResponse) => {
+  let responseText = String(modelResponse || '').trim();
+  const isMeaningfulAttempt = responseText.startsWith('[ATTEMPT]');
+  responseText = responseText.replace(/^\[(?:ATTEMPT|NOT_ATTEMPT)\]\s*/, '');
+
+  if (responseText.startsWith('[CORRECT]')) {
+    return {
+      isCorrect: true,
+      isMeaningfulAttempt,
+      responseText: responseText.substring('[CORRECT]'.length).trim(),
+    };
+  }
+
+  if (responseText.startsWith('[ĐÚNG]')) {
+    return {
+      isCorrect: true,
+      isMeaningfulAttempt,
+      responseText: responseText.substring('[ĐÚNG]'.length).trim(),
+    };
+  }
+
+  if (responseText.startsWith('[INCORRECT]')) {
+    return {
+      isCorrect: false,
+      isMeaningfulAttempt,
+      responseText: responseText.substring('[INCORRECT]'.length).trim(),
+    };
+  }
+
+  if (responseText.startsWith('[SAI]')) {
+    return {
+      isCorrect: false,
+      isMeaningfulAttempt,
+      responseText: responseText.substring('[SAI]'.length).trim(),
+    };
+  }
+
+  return { isCorrect: null, isMeaningfulAttempt, responseText };
+};
+
 const checkUserAnswer = async (req, res) => {
   try {
     const { sessionId, userAnswer, language = 'en', imageUrl } = req.body;
@@ -23,8 +63,6 @@ const checkUserAnswer = async (req, res) => {
     if (!conversation) {
       return res.status(404).json({ error: "Conversation not found" });
     }
-
-    InterventionService.recordStudentAttempt(conversation);
 
     // Add check-answer action to conversation history
     const checkAnswerEntry = {
@@ -62,19 +100,12 @@ const checkUserAnswer = async (req, res) => {
       }
     }));
     
-    let isCorrect = null;
-    let responseText = modelResponse;
+    const { isCorrect, isMeaningfulAttempt, responseText: parsedResponseText } = parseCheckAnswerResponse(modelResponse);
+    let responseText = parsedResponseText;
     let coinsAwarded = 0;
     let pointsAwarded = 0;
 
-    if (modelResponse.startsWith('[CORRECT]') || modelResponse.startsWith('[ĐÚNG]')) {
-      isCorrect = true;
-      if (modelResponse.startsWith('[CORRECT]')) {
-        responseText = modelResponse.substring('[CORRECT]'.length).trim();
-      } else {
-        responseText = modelResponse.substring('[ĐÚNG]'.length).trim();
-      }
-      
+    if (isCorrect === true) {
       const user = await User.findById(req.user._id);
       if (user) {
         user.coins += 10;
@@ -98,18 +129,13 @@ const checkUserAnswer = async (req, res) => {
       if (!responseText) {
         responseText = getMessages(language).messages.success;
       }
-    } else if (modelResponse.startsWith('[INCORRECT]') || modelResponse.startsWith('[SAI]')) {
-      isCorrect = false;
-      if (modelResponse.startsWith('[INCORRECT]')) {
-        responseText = modelResponse.substring('[INCORRECT]'.length).trim();
-      } else {
-        responseText = modelResponse.substring('[SAI]'.length).trim();
-      }
+    } else if (isCorrect === false) {
       if (!responseText) {
         responseText = getMessages(language).messages.tryAgain;
       }
     }
 
+    InterventionService.recordStudentAttempt(conversation, isMeaningfulAttempt);
     InterventionService.recordAnswerCheck(conversation, isCorrect);
 
     if (isCorrect === false) {
@@ -148,6 +174,7 @@ const checkUserAnswer = async (req, res) => {
     res.json({ 
       message: responseText, 
       isCorrect,
+      isMeaningfulAttempt,
       coinsAwarded,
       totalCoins,
       totalPoints,
@@ -187,8 +214,6 @@ const checkUserAnswerWithImage = async (req, res) => {
     if (!conversation) {
       return res.status(404).json({ error: "Conversation not found" });
     }
-
-    InterventionService.recordStudentAttempt(conversation);
 
     let imageData = null;
     if (imageFile) {
@@ -248,19 +273,12 @@ const checkUserAnswerWithImage = async (req, res) => {
       }
     }));
 
-    let isCorrect = null;
-    let responseText = modelResponse;
+    const { isCorrect, isMeaningfulAttempt, responseText: parsedResponseText } = parseCheckAnswerResponse(modelResponse);
+    let responseText = parsedResponseText;
     let coinsAwarded = 0;
     let pointsAwarded = 0;
 
-    if (modelResponse.startsWith('[CORRECT]') || modelResponse.startsWith('[ĐÚNG]')) {
-      isCorrect = true;
-      if (modelResponse.startsWith('[CORRECT]')) {
-        responseText = modelResponse.substring('[CORRECT]'.length).trim();
-      } else {
-        responseText = modelResponse.substring('[ĐÚNG]'.length).trim();
-      }
-
+    if (isCorrect === true) {
       const user = await User.findById(req.user._id);
       if (user) {
         user.coins += 10;
@@ -284,18 +302,13 @@ const checkUserAnswerWithImage = async (req, res) => {
       if (!responseText) {
         responseText = getMessages(language).messages.success;
       }
-    } else if (modelResponse.startsWith('[INCORRECT]') || modelResponse.startsWith('[SAI]')) {
-      isCorrect = false;
-      if (modelResponse.startsWith('[INCORRECT]')) {
-        responseText = modelResponse.substring('[INCORRECT]'.length).trim();
-      } else {
-        responseText = modelResponse.substring('[SAI]'.length).trim();
-      }
+    } else if (isCorrect === false) {
       if (!responseText) {
         responseText = getMessages(language).messages.tryAgain;
       }
     }
 
+    InterventionService.recordStudentAttempt(conversation, isMeaningfulAttempt);
     InterventionService.recordAnswerCheck(conversation, isCorrect);
 
     if (isCorrect === false) {
@@ -334,6 +347,7 @@ const checkUserAnswerWithImage = async (req, res) => {
     res.json({
       message: responseText,
       isCorrect,
+      isMeaningfulAttempt,
       coinsAwarded,
       totalCoins,
       totalPoints,
@@ -357,4 +371,4 @@ const checkUserAnswerWithImage = async (req, res) => {
   }
 };
 
-module.exports = { checkUserAnswer, checkUserAnswerWithImage }; 
+module.exports = { checkUserAnswer, checkUserAnswerWithImage, parseCheckAnswerResponse };

@@ -134,8 +134,8 @@ const buildCheckAnswerPrompt = (userAnswer, language = 'en', educationLevel, sub
   const basePrompts = language === 'vi' ? viPrompts : enPrompts;
   const formatInstruction = basePrompts.messages?.checkAnswerFormatInstruction || (
     language === 'vi'
-      ? 'BẮT BUỘC: Bắt đầu phản hồi bằng đúng một nhãn [ĐÚNG] hoặc [SAI]. Sau nhãn chỉ phản hồi và gợi ý sửa, không đưa đáp án hoàn chỉnh.'
-      : 'REQUIRED: Start with exactly one label: [CORRECT] or [INCORRECT]. After the label, give feedback and hints only, not the complete answer.'
+      ? 'BẮT BUỘC: Bắt đầu bằng [ATTEMPT] hoặc [NOT_ATTEMPT], rồi [ĐÚNG] hoặc [SAI]. [ATTEMPT] chỉ dùng khi học sinh đã viết một bước làm liên quan; nếu chưa, hãy đưa một gợi ý ngắn để em bắt đầu. Không đưa đáp án hoàn chỉnh.'
+      : 'REQUIRED: Start with [ATTEMPT] or [NOT_ATTEMPT], then [CORRECT] or [INCORRECT]. Use [ATTEMPT] only for a relevant working step; otherwise give one short prompt to start. Do not give the complete answer.'
   );
 
   return `${prompts.checkAnswer.replace('{{userAnswer}}', userAnswer)} ${formatInstruction}`;
