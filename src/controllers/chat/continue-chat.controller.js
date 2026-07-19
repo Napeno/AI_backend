@@ -4,6 +4,15 @@ const InterventionService = require('../../services/intervention.service');
 const InterventionQuizService = require('../../services/intervention-quiz.service');
 const { capturePracticeItem } = require('../../services/practice.service');
 
+const getErrorDetails = (error) => ({
+  name: error?.name || 'Error',
+  message: error?.message || 'Unknown error',
+  status: error?.status || error?.response?.status || null,
+  code: error?.code || error?.response?.data?.error?.status || null,
+  apiMessage: error?.response?.data?.error?.message || error?.statusText || null,
+  stack: error?.stack || null,
+});
+
 const continueChat = async (req, res) => {
   try {
     const { sessionId, language = 'en', gateResponse = null } = req.body;
@@ -50,13 +59,24 @@ const continueChat = async (req, res) => {
 
     const foundationReviewPrompt = InterventionService.getFoundationReviewPrompt(conversation, language);
     const blockerSupportPrompt = InterventionService.getBlockerSupportPrompt(gateResponse, language);
-    const modelResponse = await chatService.getContinuation(
-      conversation.history, 
-      language,
-      conversation.educationLevel,
-      conversation.subjectArea,
-      foundationReviewPrompt || blockerSupportPrompt
-    );
+    let modelResponse;
+    try {
+      modelResponse = await chatService.getContinuation(
+        conversation.history,
+        language,
+        conversation.educationLevel,
+        conversation.subjectArea,
+        foundationReviewPrompt || blockerSupportPrompt
+      );
+    } catch (error) {
+      modelResponse = InterventionService.getBlockerSupportFallback(gateResponse, language);
+      if (!modelResponse) throw error;
+      console.error(JSON.stringify({
+        event: 'continue_chat_blocker_fallback',
+        timestamp: new Date().toISOString(),
+        error: getErrorDetails(error),
+      }));
+    }
 
     console.log(JSON.stringify({
       event: 'continue_chat_response',
@@ -96,17 +116,14 @@ const continueChat = async (req, res) => {
       intervention: InterventionService.buildInactiveIntervention(conversation, language)
     });
   } catch (error) {
-    console.log(JSON.stringify({
+    console.error(JSON.stringify({
       event: 'continue_chat_error',
       timestamp: new Date().toISOString(),
-      error: {
-        message: error.message,
-        userId: req.user?._id,
-        sessionId: req.body?.sessionId
-      }
+      error: getErrorDetails(error),
+      sessionId: req.body?.sessionId,
     }));
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
-module.exports = { continueChat }; 
+module.exports = { continueChat, getErrorDetails };

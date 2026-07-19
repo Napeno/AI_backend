@@ -1,70 +1,94 @@
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
-// Access your API key as an environment variable
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const API_KEYS = Array.from({ length: 6 }, (_, index) => process.env[`GOOGLE_API_KEY_${index + 1}`])
+  .filter(Boolean);
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite-preview';
+let activeKeyIndex = 0;
 
-// Helper function for retry logic with exponential backoff
-const makeRequestWithRetry = async (requestFn, maxRetries = 3) => {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+const getActiveKeyNumber = () => activeKeyIndex + 1;
+
+const getChat = (history, systemInstruction) => {
+  if (API_KEYS.length === 0) {
+    throw new Error('No Google API keys configured');
+  }
+
+  const model = new GoogleGenerativeAI(API_KEYS[activeKeyIndex]).getGenerativeModel({
+    model: GEMINI_MODEL,
+    systemInstruction,
+  });
+
+  return model.startChat({ history });
+};
+
+const rotateApiKey = (triedKeyIndexes) => {
+  for (let offset = 1; offset < API_KEYS.length; offset += 1) {
+    const nextKeyIndex = (activeKeyIndex + offset) % API_KEYS.length;
+    if (!triedKeyIndexes.has(nextKeyIndex)) {
+      activeKeyIndex = nextKeyIndex;
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const makeRequestWithRetry = async (requestFn, maxRetries = Math.max(API_KEYS.length, 1)) => {
+  const triedKeyIndexes = new Set();
+
+  for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
     try {
       const result = await requestFn();
-      console.log('API Response result:', typeof result, result);
 
-      // Check if we have a valid response object
       if (!result) {
-        console.error('No result returned');
         throw new Error('No response from Gemini API');
       }
 
-      // Check if result has response property with text function
       if (result.response && typeof result.response.text === 'function') {
-        console.log('Valid response format with response.text function');
         return result;
       }
 
-      // Check if result has direct text function
       if (typeof result.text === 'function') {
-        console.log('Valid response format with direct text function');
         return result;
       }
 
-      console.error('Invalid response format:', result);
       throw new Error('Invalid response format from Gemini API');
-
     } catch (error) {
-      if (error.status === 429 && attempt < maxRetries) {
-        console.log(`Rate limit hit, waiting before retry ${attempt + 1}/${maxRetries}...`);
-        const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-        await delay(5000 * attempt); // Exponential backoff: 5s, 10s, 15s
+      if (error.status !== 429) throw error;
+
+      triedKeyIndexes.add(activeKeyIndex);
+      if (attempt < maxRetries && rotateApiKey(triedKeyIndexes)) {
+        console.warn(JSON.stringify({
+          event: 'gemini_key_rotated',
+          model: GEMINI_MODEL,
+          failedKeyNumber: [...triedKeyIndexes].at(-1) + 1,
+          nextKeyNumber: getActiveKeyNumber(),
+          status: error.status,
+        }));
         continue;
       }
+
       throw error;
     }
   }
 };
 
-const startChat = (history, systemInstruction) => {
-  const model = genAI.getGenerativeModel({
-    model: GEMINI_MODEL,
-    systemInstruction: systemInstruction
-  });
-  return model.startChat({ history });
-};
+const startChat = (history, systemInstruction) => ({
+  sendMessage: (...args) => getChat(history, systemInstruction).sendMessage(...args),
+});
 
 const extractResponseText = (result) => {
   if (result && result.response) {
     return result.response.text();
   } else if (typeof result.text === 'function') {
     return result.text();
-  } else {
-    throw new Error('Invalid response format from Gemini API');
   }
+
+  throw new Error('Invalid response format from Gemini API');
 };
 
 module.exports = {
+  extractResponseText,
   makeRequestWithRetry,
   startChat,
-  extractResponseText,
-}; 
+};
