@@ -1,381 +1,138 @@
 const Conversation = require('../../models/conversation.model');
-const User = require('../../models/user.model'); // Import User model
-const chatService = require('../../services/chat.service');
+const User = require('../../models/user.model');
 const RankingService = require('../../services/ranking.service');
 const ImageUploadService = require('../../services/image-upload.service');
 const InterventionService = require('../../services/intervention.service');
 const { capturePracticeItem } = require('../../services/practice.service');
+const { evaluateAnswer } = require('../../services/answer-evaluator.service');
+const { toPublicProblemContext } = require('../../services/problem-context.service');
 const { getMessages } = require('./utils');
 
+// Kept for older tests/callers; new checks use the structured evaluator below.
 const parseCheckAnswerResponse = (modelResponse) => {
   let responseText = String(modelResponse || '').trim();
   const isMeaningfulAttempt = responseText.startsWith('[ATTEMPT]');
   responseText = responseText.replace(/^\[(?:ATTEMPT|NOT_ATTEMPT)\]\s*/, '');
+  const status = responseText.match(/^\[(CORRECT|ĐÚNG|INCORRECT|SAI|UNCERTAIN)\]/)?.[1];
+  return {
+    isCorrect: ['CORRECT', 'ĐÚNG'].includes(status) ? true : ['INCORRECT', 'SAI'].includes(status) ? false : null,
+    isMeaningfulAttempt,
+    responseText: responseText.replace(/^\[(?:CORRECT|ĐÚNG|INCORRECT|SAI|UNCERTAIN)\]\s*/, ''),
+  };
+};
 
-  if (responseText.startsWith('[CORRECT]')) {
-    return {
-      isCorrect: true,
-      isMeaningfulAttempt,
-      responseText: responseText.substring('[CORRECT]'.length).trim(),
-    };
+const checkAnswer = async (req, res, imageData = null) => {
+  const { sessionId, userAnswer, language = 'en', imageUrl } = req.body;
+  const answerImageUrl = imageData?.url || imageUrl || null;
+  if (!sessionId) return res.status(400).json({ error: 'Session ID is required' });
+  if (!userAnswer && !answerImageUrl) return res.status(400).json({ error: 'User answer or image is required' });
+
+  const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
+  if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+  const entry = {
+    role: 'check-answer',
+    parts: [{ text: userAnswer ? `Đang kiểm tra câu trả lời: "${userAnswer}"` : 'Đang kiểm tra câu trả lời từ hình ảnh' }],
+    timestamp: new Date(),
+    userAnswer: userAnswer || '',
+  };
+  if (answerImageUrl) entry.parts[0].image = imageData || { url: answerImageUrl };
+  conversation.history.push(entry);
+
+  const evaluation = await evaluateAnswer({
+    conversation,
+    answer: userAnswer || '',
+    answerImageUrl,
+    language,
+  });
+  const isCorrect = evaluation.status === 'correct' ? true : evaluation.status === 'incorrect' ? false : null;
+  let responseText = evaluation.feedback;
+  let coinsAwarded = 0;
+  let pointsAwarded = 0;
+
+  if (isCorrect === true) {
+    const user = await User.findById(req.user._id);
+    if (user) {
+      user.coins += 10;
+      coinsAwarded = 10;
+      pointsAwarded = 25;
+      const pointsResult = RankingService.awardPoints(user, pointsAwarded, 'correct_answer');
+      await user.save();
+      if (pointsResult.rankChanged) {
+        const rank = RankingService.getRankInfo(pointsResult.newRank, language);
+        responseText += language === 'vi'
+          ? `\n\n🎉 RANK UP! Bạn đã thăng hạng lên ${rank.displayName} ${rank.icon}!\n${rank.displayDescription}`
+          : `\n\n🎉 RANK UP! You've been promoted to ${rank.displayName} ${rank.icon}!\n${rank.displayDescription}`;
+      }
+    }
+    responseText ||= getMessages(language).messages.success;
+  } else if (isCorrect === false) {
+    responseText ||= getMessages(language).messages.tryAgain;
+    InterventionService.recordStudentAttempt(conversation, evaluation.isMeaningfulAttempt);
+    InterventionService.recordAnswerCheck(conversation, false);
+    responseText += InterventionService.getFoundationSupportMessage(conversation, language);
+  }
+  if (isCorrect === true) {
+    InterventionService.recordStudentAttempt(conversation, evaluation.isMeaningfulAttempt);
+    InterventionService.recordAnswerCheck(conversation, true);
   }
 
-  if (responseText.startsWith('[ĐÚNG]')) {
-    return {
-      isCorrect: true,
-      isMeaningfulAttempt,
-      responseText: responseText.substring('[ĐÚNG]'.length).trim(),
-    };
+  conversation.history.push({
+    role: 'model',
+    parts: [{ text: responseText }],
+    timestamp: new Date(),
+    isCorrect,
+    evaluationStatus: evaluation.status,
+  });
+  await conversation.save();
+
+  if (isCorrect === false) {
+    try {
+      await capturePracticeItem({ userId: req.user._id, conversation, blocker: 'incorrect_answer', feedback: responseText });
+    } catch (error) {
+      console.error('Error capturing practice item:', error.message);
+    }
   }
 
-  if (responseText.startsWith('[INCORRECT]')) {
-    return {
-      isCorrect: false,
-      isMeaningfulAttempt,
-      responseText: responseText.substring('[INCORRECT]'.length).trim(),
-    };
-  }
-
-  if (responseText.startsWith('[SAI]')) {
-    return {
-      isCorrect: false,
-      isMeaningfulAttempt,
-      responseText: responseText.substring('[SAI]'.length).trim(),
-    };
-  }
-
-  if (responseText.startsWith('[UNCERTAIN]')) {
-    return {
-      isCorrect: null,
-      isMeaningfulAttempt,
-      responseText: responseText.substring('[UNCERTAIN]'.length).trim(),
-    };
-  }
-
-  return { isCorrect: null, isMeaningfulAttempt, responseText };
+  const updatedUser = await User.findById(req.user._id);
+  res.json({
+    message: responseText,
+    isCorrect,
+    isMeaningfulAttempt: evaluation.isMeaningfulAttempt,
+    evaluation: {
+      status: evaluation.status,
+      source: evaluation.source,
+      questionId: evaluation.questionId,
+      evidence: evaluation.evidence,
+    },
+    problemContext: toPublicProblemContext(conversation.problemContext),
+    coinsAwarded,
+    totalCoins: updatedUser?.coins ?? null,
+    totalPoints: updatedUser?.points ?? null,
+    currentRank: updatedUser?.rank ?? null,
+    pointsAwarded,
+    intervention: InterventionService.buildInactiveIntervention(conversation, language),
+    imageUrl: answerImageUrl,
+  });
 };
 
 const checkUserAnswer = async (req, res) => {
   try {
-    const { sessionId, userAnswer, language = 'en', imageUrl } = req.body;
-
-    if (!sessionId) {
-      return res.status(400).json({ error: "Session ID is required" });
-    }
-
-    if (!userAnswer && !imageUrl) {
-      return res.status(400).json({ error: "User answer or image is required" });
-    }
-
-    const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
-    if (!conversation) {
-      return res.status(404).json({ error: "Conversation not found" });
-    }
-
-    // Add check-answer action to conversation history
-    const checkAnswerEntry = {
-      role: 'check-answer',
-      parts: [{ text: userAnswer ? `Đang kiểm tra câu trả lời: "${userAnswer}"` : 'Đang kiểm tra câu trả lời từ hình ảnh' }],
-      timestamp: new Date(),
-      userAnswer: userAnswer || ''  // Store the actual user answer for reference
-    };
-
-    // Add image data if provided
-    if (imageUrl) {
-      checkAnswerEntry.parts[0].image = { url: imageUrl };
-    }
-
-    conversation.history.push(checkAnswerEntry);
-
-    const modelResponse = await chatService.checkUserAnswer(
-      conversation.history,
-      userAnswer || '',
-      language,
-      conversation.educationLevel,
-      conversation.subjectArea,
-      imageUrl
-    );
-    
-    console.log(JSON.stringify({
-      event: 'check_answer_response',
-      timestamp: new Date().toISOString(),
-      data: {
-        userId: req.user._id,
-        sessionId,
-        userAnswer: userAnswer ? userAnswer.substring(0, 100) : '[image only]',
-        responseLength: modelResponse?.length,
-        historyLength: conversation.history.length
-      }
-    }));
-    
-    const { isCorrect, isMeaningfulAttempt, responseText: parsedResponseText } = parseCheckAnswerResponse(modelResponse);
-    let responseText = parsedResponseText;
-    let coinsAwarded = 0;
-    let pointsAwarded = 0;
-
-    if (isCorrect === true) {
-      const user = await User.findById(req.user._id);
-      if (user) {
-        user.coins += 10;
-        coinsAwarded = 10;
-        pointsAwarded = 25;
-
-        // Award points and update rank for every correct answer
-        const pointsResult = RankingService.awardPoints(user, 25, 'correct_answer');
-        await user.save();
-
-        // Add rank up notification if rank changed
-        if (pointsResult.rankChanged) {
-          const newRankInfo = RankingService.getRankInfo(pointsResult.newRank, language);
-          const rankUpMessage = language === 'vi'
-            ? `\n\n🎉 RANK UP! Bạn đã thăng hạng lên ${newRankInfo.displayName} ${newRankInfo.icon}!\n${newRankInfo.displayDescription}`
-            : `\n\n🎉 RANK UP! You've been promoted to ${newRankInfo.displayName} ${newRankInfo.icon}!\n${newRankInfo.displayDescription}`;
-          responseText += rankUpMessage;
-        }
-      }
-
-      if (!responseText) {
-        responseText = getMessages(language).messages.success;
-      }
-    } else if (isCorrect === false) {
-      if (!responseText) {
-        responseText = getMessages(language).messages.tryAgain;
-      }
-    }
-
-    InterventionService.recordStudentAttempt(conversation, isMeaningfulAttempt);
-    InterventionService.recordAnswerCheck(conversation, isCorrect);
-
-    if (isCorrect === false) {
-      responseText += InterventionService.getFoundationSupportMessage(conversation, language);
-    }
-
-    // Save AI's response to conversation, including correctness
-    conversation.history.push({
-      role: 'model',
-      parts: [{ text: responseText }],
-      timestamp: new Date(),
-      isCorrect: isCorrect
-    });
-    
-    await conversation.save();
-
-    if (isCorrect === false) {
-      try {
-        await capturePracticeItem({
-          userId: req.user._id,
-          conversation,
-          blocker: 'incorrect_answer',
-          feedback: responseText,
-        });
-      } catch (error) {
-        console.error('Error capturing practice item from incorrect answer:', error);
-      }
-    }
-    
-    // Fetch the updated user to get the latest coin total and points
-    const updatedUser = await User.findById(req.user._id);
-    const totalCoins = updatedUser ? updatedUser.coins : null;
-    const totalPoints = updatedUser ? updatedUser.points : null;
-    const currentRank = updatedUser ? updatedUser.rank : null;
-    
-    res.json({ 
-      message: responseText, 
-      isCorrect,
-      isMeaningfulAttempt,
-      coinsAwarded,
-      totalCoins,
-      totalPoints,
-      currentRank,
-      pointsAwarded,
-      intervention: InterventionService.buildInactiveIntervention(conversation, language)
-    });
+    await checkAnswer(req, res);
   } catch (error) {
-    console.log(JSON.stringify({
-      event: 'check_answer_error',
-      timestamp: new Date().toISOString(),
-      error: {
-        message: error.message,
-        userId: req.user?._id,
-        sessionId: req.body?.sessionId,
-        userAnswer: req.body?.userAnswer ? req.body.userAnswer.substring(0, 50) : '[image only]'
-      }
-    }));
-    res.status(500).json({ error: "Internal server error" });
+    console.error('Check answer error:', error.message);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 const checkUserAnswerWithImage = async (req, res) => {
   try {
-    const { sessionId, userAnswer, language = 'en' } = req.body;
-    const imageFile = req.file;
-
-    if (!sessionId) {
-      return res.status(400).json({ error: "Session ID is required" });
-    }
-
-    if (!userAnswer && !imageFile) {
-      return res.status(400).json({ error: "User answer or image is required" });
-    }
-
-    const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
-    if (!conversation) {
-      return res.status(404).json({ error: "Conversation not found" });
-    }
-
     let imageData = null;
-    if (imageFile) {
-      try {
-        console.log('Uploading image for answer check...');
-        imageData = await ImageUploadService.uploadImage(imageFile.buffer, imageFile.originalname);
-        console.log('Image uploaded successfully for answer check:', imageData.url);
-      } catch (error) {
-        console.error('Error uploading image for answer check:', error);
-        return res.status(500).json({
-          error: getMessages(language).imageUploadError || 'Error uploading image'
-        });
-      }
-    }
-
-    // Add check-answer action to conversation history
-    const checkAnswerEntry = {
-      role: 'check-answer',
-      parts: [{ text: userAnswer ? `Đang kiểm tra câu trả lời: "${userAnswer}"` : 'Đang kiểm tra câu trả lời từ hình ảnh' }],
-      timestamp: new Date(),
-      userAnswer: userAnswer || ''  // Store the actual user answer for reference
-    };
-
-    // Add image data if provided
-    if (imageData) {
-      checkAnswerEntry.parts[0].image = {
-        url: imageData.url,
-        public_id: imageData.public_id,
-        width: imageData.width,
-        height: imageData.height,
-        format: imageData.format,
-        bytes: imageData.bytes
-      };
-    }
-
-    conversation.history.push(checkAnswerEntry);
-
-    const modelResponse = await chatService.checkUserAnswer(
-      conversation.history,
-      userAnswer || '',
-      language,
-      conversation.educationLevel,
-      conversation.subjectArea,
-      imageData ? imageData.url : null
-    );
-
-    console.log(JSON.stringify({
-      event: 'check_answer_with_image_response',
-      timestamp: new Date().toISOString(),
-      data: {
-        userId: req.user._id,
-        sessionId,
-        userAnswer: userAnswer ? userAnswer.substring(0, 100) : '[image only]',
-        responseLength: modelResponse?.length,
-        historyLength: conversation.history.length,
-        hasImage: !!imageData
-      }
-    }));
-
-    const { isCorrect, isMeaningfulAttempt, responseText: parsedResponseText } = parseCheckAnswerResponse(modelResponse);
-    let responseText = parsedResponseText;
-    let coinsAwarded = 0;
-    let pointsAwarded = 0;
-
-    if (isCorrect === true) {
-      const user = await User.findById(req.user._id);
-      if (user) {
-        user.coins += 10;
-        coinsAwarded = 10;
-        pointsAwarded = 25;
-
-        // Award points and update rank for every correct answer
-        const pointsResult = RankingService.awardPoints(user, 25, 'correct_answer');
-        await user.save();
-
-        // Add rank up notification if rank changed
-        if (pointsResult.rankChanged) {
-          const newRankInfo = RankingService.getRankInfo(pointsResult.newRank, language);
-          const rankUpMessage = language === 'vi'
-            ? `\n\n🎉 RANK UP! Bạn đã thăng hạng lên ${newRankInfo.displayName} ${newRankInfo.icon}!\n${newRankInfo.displayDescription}`
-            : `\n\n🎉 RANK UP! You've been promoted to ${newRankInfo.displayName} ${newRankInfo.icon}!\n${newRankInfo.displayDescription}`;
-          responseText += rankUpMessage;
-        }
-      }
-
-      if (!responseText) {
-        responseText = getMessages(language).messages.success;
-      }
-    } else if (isCorrect === false) {
-      if (!responseText) {
-        responseText = getMessages(language).messages.tryAgain;
-      }
-    }
-
-    InterventionService.recordStudentAttempt(conversation, isMeaningfulAttempt);
-    InterventionService.recordAnswerCheck(conversation, isCorrect);
-
-    if (isCorrect === false) {
-      responseText += InterventionService.getFoundationSupportMessage(conversation, language);
-    }
-
-    // Save AI's response to conversation, including correctness
-    conversation.history.push({
-      role: 'model',
-      parts: [{ text: responseText }],
-      timestamp: new Date(),
-      isCorrect: isCorrect
-    });
-
-    await conversation.save();
-
-    if (isCorrect === false) {
-      try {
-        await capturePracticeItem({
-          userId: req.user._id,
-          conversation,
-          blocker: 'incorrect_answer',
-          feedback: responseText,
-        });
-      } catch (error) {
-        console.error('Error capturing practice item from incorrect image answer:', error);
-      }
-    }
-
-    // Fetch the updated user to get the latest coin total and points
-    const updatedUser = await User.findById(req.user._id);
-    const totalCoins = updatedUser ? updatedUser.coins : null;
-    const totalPoints = updatedUser ? updatedUser.points : null;
-    const currentRank = updatedUser ? updatedUser.rank : null;
-
-    res.json({
-      message: responseText,
-      isCorrect,
-      isMeaningfulAttempt,
-      coinsAwarded,
-      totalCoins,
-      totalPoints,
-      currentRank,
-      pointsAwarded,
-      intervention: InterventionService.buildInactiveIntervention(conversation, language),
-      imageUrl: imageData ? imageData.url : null
-    });
+    if (req.file) imageData = await ImageUploadService.uploadImage(req.file.buffer, req.file.originalname);
+    await checkAnswer(req, res, imageData);
   } catch (error) {
-    console.log(JSON.stringify({
-      event: 'check_answer_with_image_error',
-      timestamp: new Date().toISOString(),
-      error: {
-        message: error.message,
-        userId: req.user?._id,
-        sessionId: req.body?.sessionId,
-        userAnswer: req.body?.userAnswer ? req.body.userAnswer.substring(0, 50) : '[image only]'
-      }
-    }));
-    res.status(500).json({ error: "Internal server error" });
+    console.error('Check answer image error:', error.message);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 

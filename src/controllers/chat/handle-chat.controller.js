@@ -1,6 +1,7 @@
 const Conversation = require('../../models/conversation.model');
 const chatService = require('../../services/chat.service');
 const InterventionService = require('../../services/intervention.service');
+const { setTextProblemContext, toPublicProblemContext } = require('../../services/problem-context.service');
 const { getMessages, checkIfInternalPrompt } = require('./utils');
 
 const handleChat = async (req, res) => {
@@ -42,6 +43,7 @@ const handleChat = async (req, res) => {
         role: 'user',
         parts: [{ text: message }]
       });
+      setTextProblemContext(conversation, message);
       console.log('Added user message to history');
     }
 
@@ -66,7 +68,8 @@ const handleChat = async (req, res) => {
     
     res.json({
       message: aiResponse,
-      intervention: InterventionService.buildInactiveIntervention(conversation, language)
+      intervention: InterventionService.buildInactiveIntervention(conversation, language),
+      problemContext: toPublicProblemContext(conversation.problemContext)
     });
   } catch (error) {
     console.error('Error in chat service:', error);

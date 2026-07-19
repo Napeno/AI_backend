@@ -11,6 +11,7 @@ router.post('/full-answer', chatController.getFullAnswer);
 router.post('/check-answer', chatController.checkUserAnswer);
 router.post('/check-answer-image', upload.single('image'), chatController.checkUserAnswerWithImage);
 router.post('/intervention', chatController.getCurrentIntervention);
+router.post('/problem-context', chatController.updateProblemContext);
 router.get('/conversations', chatController.getConversations);
 router.get('/conversations/:sessionId', chatController.getConversationHistory);
 router.put('/conversations/:sessionId/settings', chatController.updateConversationSettings);

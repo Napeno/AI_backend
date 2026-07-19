@@ -49,6 +49,11 @@ const messageSchema = new mongoose.Schema({
     isCorrect: {
         type: Boolean,
         required: false // Used for bot responses to check-answer
+    },
+    evaluationStatus: {
+        type: String,
+        enum: ['correct', 'incorrect', 'uncertain'],
+        required: false,
     }
 }, { _id: false });
 
@@ -102,6 +107,24 @@ const activeGateSchema = new mongoose.Schema({
             required: false,
         },
     },
+}, { _id: false });
+
+const problemQuestionSchema = new mongoose.Schema({
+    id: { type: String, required: true },
+    prompt: { type: String, required: true },
+    sourceExpression: { type: String, required: false },
+}, { _id: false });
+
+const problemContextSchema = new mongoose.Schema({
+    sourceText: { type: String, default: '' },
+    sourceImage: {
+        url: { type: String, required: false },
+        public_id: { type: String, required: false },
+    },
+    questions: { type: [problemQuestionSchema], default: [] },
+    suggestedQuestionId: { type: String, required: false },
+    activeQuestionId: { type: String, required: false },
+    extractedAt: { type: Date, required: false },
 }, { _id: false });
 
 const interventionMetricsSchema = new mongoose.Schema({
@@ -211,6 +234,10 @@ const conversationSchema = new mongoose.Schema({
     },
     interventionMetrics: {
         type: interventionMetricsSchema,
+        default: () => ({}),
+    },
+    problemContext: {
+        type: problemContextSchema,
         default: () => ({}),
     },
     history: [messageSchema],
