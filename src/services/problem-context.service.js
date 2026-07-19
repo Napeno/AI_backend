@@ -87,7 +87,7 @@ const setImageProblemContext = async (conversation, { sourceText, image, languag
     sourceImage: { url: image.url, public_id: image.public_id },
     questions,
     suggestedQuestionId,
-    activeQuestionId: requestedQuestionId || questions.length === 1 ? suggestedQuestionId : undefined,
+    activeQuestionId: suggestedQuestionId,
     extractedAt: new Date(),
   };
   conversation.markModified?.('problemContext');
@@ -95,7 +95,13 @@ const setImageProblemContext = async (conversation, { sourceText, image, languag
 };
 
 const ensureProblemContext = async (conversation, language = 'en') => {
-  if (conversation.problemContext?.questions?.length) return toPublicProblemContext(conversation.problemContext);
+  if (conversation.problemContext?.questions?.length) {
+    if (!conversation.problemContext.activeQuestionId) {
+      conversation.problemContext.activeQuestionId = conversation.problemContext.suggestedQuestionId || conversation.problemContext.questions[0].id;
+      conversation.markModified?.('problemContext');
+    }
+    return toPublicProblemContext(conversation.problemContext);
+  }
   const sourceMessage = [...(conversation.history || [])].reverse().find(message => message.role === 'user');
   if (!sourceMessage) return toPublicProblemContext();
   const sourceText = sourceMessage.parts?.map(part => part.text || '').join('\n').trim();
