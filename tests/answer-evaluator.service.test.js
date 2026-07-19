@@ -46,3 +46,19 @@ test('automatically uses the suggested image question while allowing a later cha
   assert.equal(context.activeQuestionId, 'd');
   assert.equal(setActiveQuestion(conversation, 'a').activeQuestionId, 'a');
 });
+
+test('recognizes an unaccented Vietnamese request for a subquestion', async () => {
+  const conversation = {
+    problemContext: {
+      sourceText: 'giai cau C di',
+      questions: [{ id: 'a', prompt: 'Câu a' }, { id: 'c', prompt: 'Câu c' }],
+      suggestedQuestionId: 'a',
+      activeQuestionId: 'a',
+    },
+    markModified() {},
+  };
+
+  const context = await ensureProblemContext(conversation, 'vi');
+  assert.equal(context.activeQuestionId, 'c');
+  assert.equal(context.suggestedQuestionId, 'c');
+});

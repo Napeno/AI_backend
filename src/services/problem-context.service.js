@@ -7,7 +7,7 @@ const parseJson = (text) => {
   return JSON.parse(firstBrace === -1 ? cleaned : cleaned.slice(firstBrace, lastBrace + 1));
 };
 
-const getQuestionIdFromText = (text = '') => String(text).toLowerCase().match(/(?:câu|question)\s*([a-z0-9]+)/i)?.[1] || null;
+const getQuestionIdFromText = (text = '') => String(text).toLowerCase().match(/(?:câu|cau|question)\s*([a-z0-9]+)/i)?.[1] || null;
 
 const toPublicProblemContext = (context = {}) => ({
   sourceText: context.sourceText || '',
@@ -67,6 +67,13 @@ Ngữ cảnh người dùng: ${sourceText || '(không có)'}` }];
 const setImageProblemContext = async (conversation, { sourceText, image, language }) => {
   const existing = conversation.problemContext || {};
   if (existing.sourceImage?.url === image?.url && existing.questions?.length) {
+    const requestedQuestionId = getQuestionIdFromText(sourceText);
+    const requestedQuestion = existing.questions.find(question => question.id === requestedQuestionId);
+    if (requestedQuestion) {
+      existing.suggestedQuestionId = requestedQuestion.id;
+      existing.activeQuestionId = requestedQuestion.id;
+      conversation.markModified?.('problemContext');
+    }
     return toPublicProblemContext(existing);
   }
 
@@ -96,6 +103,13 @@ const setImageProblemContext = async (conversation, { sourceText, image, languag
 
 const ensureProblemContext = async (conversation, language = 'en') => {
   if (conversation.problemContext?.questions?.length) {
+    const requestedQuestionId = getQuestionIdFromText(conversation.problemContext.sourceText);
+    const requestedQuestion = conversation.problemContext.questions.find(question => question.id === requestedQuestionId);
+    if (requestedQuestion) {
+      conversation.problemContext.suggestedQuestionId = requestedQuestion.id;
+      conversation.problemContext.activeQuestionId = requestedQuestion.id;
+      conversation.markModified?.('problemContext');
+    }
     if (!conversation.problemContext.activeQuestionId) {
       conversation.problemContext.activeQuestionId = conversation.problemContext.suggestedQuestionId || conversation.problemContext.questions[0].id;
       conversation.markModified?.('problemContext');

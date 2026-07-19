@@ -2,7 +2,7 @@ const Conversation = require('../../models/conversation.model');
 const InterventionService = require('../../services/intervention.service');
 const InterventionQuizService = require('../../services/intervention-quiz.service');
 const { getMessages } = require('./utils');
-const { setActiveQuestion, toPublicProblemContext } = require('../../services/problem-context.service');
+const { ensureProblemContext, setActiveQuestion, toPublicProblemContext } = require('../../services/problem-context.service');
 
 const getConversations = async (req, res) => {
   try {
@@ -50,6 +50,11 @@ const getConversationHistory = async (req, res) => {
     
     if (!conversation) {
       return res.status(404).json({ message: 'Conversation not found' });
+    }
+
+    if (conversation.problemContext?.questions?.length) {
+      await ensureProblemContext(conversation, req.body?.language || 'en');
+      await conversation.save();
     }
 
     // Filter out system prompts and invalid messages
