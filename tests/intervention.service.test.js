@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const InterventionService = require('../src/services/intervention.service');
 const { parseCheckAnswerResponse } = require('../src/controllers/chat/check-answer.controller');
+const { getErrorDetails } = require('../src/controllers/chat/continue-chat.controller');
 
 const createConversation = () => ({
   interventionMetrics: {},
@@ -66,6 +67,14 @@ test('does not count a quiz or reflection as a meaningful attempt', () => {
   assert.equal(InterventionService.evaluateFullAnswerRequest(conversation, 'vi').allowed, false);
 });
 
+test('provides a safe fallback for each blocker choice', () => {
+  for (const value of ['understand_question', 'formula', 'start', 'calculation']) {
+    const fallback = InterventionService.getBlockerSupportFallback({ type: 'blocker_choice', value }, 'vi');
+    assert.equal(typeof fallback, 'string');
+    assert.ok(fallback.length > 10);
+  }
+});
+
 test('parses and removes attempt and correctness labels from answer feedback', () => {
   assert.deepEqual(
     parseCheckAnswerResponse('[ATTEMPT] [SAI] Em đã thay nhầm dấu ở bước hai.'),
@@ -84,6 +93,22 @@ test('parses and removes attempt and correctness labels from answer feedback', (
       responseText: 'Em hãy thử viết công thức trước nhé.',
     }
   );
+});
+
+test('logs Gemini error details without serializing the whole request', () => {
+  const error = Object.assign(new Error('Quota exceeded'), {
+    status: 429,
+    code: 'RESOURCE_EXHAUSTED',
+  });
+
+  assert.deepEqual(getErrorDetails(error), {
+    name: 'Error',
+    message: 'Quota exceeded',
+    status: 429,
+    code: 'RESOURCE_EXHAUSTED',
+    apiMessage: null,
+    stack: error.stack,
+  });
 });
 
 test('keeps a mini quiz open and gives its stored hint after a wrong choice', () => {

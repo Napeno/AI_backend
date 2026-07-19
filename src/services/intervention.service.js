@@ -311,6 +311,29 @@ const getBlockerSupportPrompt = (gateResponse, language = 'en') => {
   return prompts[response.value] || null;
 };
 
+const getBlockerSupportFallback = (gateResponse, language = 'en') => {
+  const response = validateGateResponse(gateResponse);
+  if (response?.type !== 'blocker_choice') {
+    return null;
+  }
+
+  const messages = language === 'vi'
+    ? {
+      understand_question: 'Mình tách đề ra trước nhé: em hãy viết ngắn gọn đề đã cho gì và đang hỏi tìm gì.',
+      formula: 'Em thử nêu công thức hoặc khái niệm em nghĩ có liên quan, rồi mình cùng xem nó có hợp với bài không nhé.',
+      start: 'Em hãy làm đúng một việc đầu tiên: khoanh hoặc viết lại dữ kiện rõ nhất trong đề.',
+      calculation: 'Em chọn một phép tính hoặc một dòng biến đổi em nghi ngờ, rồi kiểm tra lại từng số và dấu nhé.',
+    }
+    : {
+      understand_question: 'Let us split the problem first: briefly write what is given and what it asks for.',
+      formula: 'Name the formula or idea you think may apply, then we can check whether it fits the problem.',
+      start: 'Do one first action: underline or write down the clearest given information.',
+      calculation: 'Choose one calculation or transformation line you doubt, then check each number and sign.',
+    };
+
+  return messages[response.value] || null;
+};
+
 const recordGateResponse = (conversation, gateResponse, language = 'en') => {
   const validResponse = validateGateResponse(gateResponse);
   if (!validResponse) {
@@ -591,6 +614,7 @@ module.exports = {
   evaluateHintRequest,
   evaluateFullAnswerRequest,
   getFoundationReviewPrompt,
+  getBlockerSupportFallback,
   getFoundationSupportMessage,
   getBlockerSupportPrompt,
   recordAnswerCheck,
