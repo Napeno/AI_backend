@@ -30,23 +30,18 @@ test('guides repeated hint requests from blocker choice to a mini quiz', () => {
   assert.equal(quizGate.intervention.type, 'mini_quiz_gate');
 });
 
-test('requires a learning step before a full answer and unlocks it after an attempt', () => {
+test('only unlocks a full answer after all hints have been used', () => {
   const blockedConversation = createConversation();
   const blocked = InterventionService.evaluateFullAnswerRequest(blockedConversation, 'vi');
 
   assert.equal(blocked.allowed, false);
-  assert.equal(blocked.intervention.type, 'full_answer_gate');
-
-  const blockerOnlyConversation = createConversation();
-  const blockerOnly = InterventionService.evaluateFullAnswerRequest(blockerOnlyConversation, 'vi', {
-    type: 'blocker_choice',
-    value: 'start',
-  });
-  assert.equal(blockerOnly.allowed, false);
-  assert.equal(blockerOnly.intervention.type, 'full_answer_gate');
+  assert.equal(blocked.intervention.canRequestFullAnswer, false);
 
   const attemptedConversation = createConversation();
   InterventionService.recordStudentAttempt(attemptedConversation);
+  assert.equal(InterventionService.evaluateFullAnswerRequest(attemptedConversation, 'vi').allowed, false);
+
+  attemptedConversation.interventionMetrics.hintRequests = 4;
   const allowed = InterventionService.evaluateFullAnswerRequest(attemptedConversation, 'vi');
 
   assert.equal(allowed.allowed, true);

@@ -213,7 +213,7 @@ const buildInactiveIntervention = (conversation, language = 'en') => {
     requiredAction: null,
     options: getCopy(language).options,
     canRequestHint: (metrics.hintRequests || 0) < MAX_EXTRA_HINTS,
-    canRequestFullAnswer: !!metrics.hasAttemptedAnswer || (metrics.gateCompletions || 0) > 0,
+    canRequestFullAnswer: (metrics.hintRequests || 0) >= MAX_EXTRA_HINTS,
     hintTier: getNextHintTier(metrics),
     progress: getProgress(metrics),
   };
@@ -468,20 +468,18 @@ const evaluateFullAnswerRequest = (conversation, language = 'en', gateResponse =
     recordFullAnswerRequest(conversation);
   }
 
-  const { level } = updateRisk(conversation, metrics);
-  const canAccessFullAnswer = metrics.hasAttemptedAnswer || metrics.gateCompletions > 0;
-  const shouldGate = !hasGateResponse && !canAccessFullAnswer;
+  updateRisk(conversation, metrics);
+  const canAccessFullAnswer = (metrics.hintRequests || 0) >= MAX_EXTRA_HINTS;
 
-  if (shouldGate) {
+  if (!canAccessFullAnswer) {
+    metrics.activeGate = { active: false };
+    markMetricsModified(conversation);
     return {
       allowed: false,
-      ...buildGateIntervention(
-        conversation,
-        language,
-        'full_answer_gate',
-        level,
-        getNextHintTier(metrics)
-      ),
+      message: language === 'vi'
+        ? 'Em hãy dùng hết các gợi ý trước nhé. Khi đã nhận đủ 4 gợi ý, nút xem lời giải đầy đủ sẽ hiện ra.'
+        : 'Please use all the hints first. The full-answer button appears after all 4 hints.',
+      intervention: buildInactiveIntervention(conversation, language),
     };
   }
 
