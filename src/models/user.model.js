@@ -50,6 +50,30 @@ const userSchema = new mongoose.Schema({
     resultId: { type: String, required: true },
     submittedAt: { type: Date, default: Date.now },
   }],
+  analyticsDemo: {
+    type: {
+      version: { type: Number, required: true },
+      seededAt: { type: Date, required: true },
+      baselineScore: { type: Number, required: true },
+      currentScore: { type: Number, required: true },
+      riskLevel: { type: String, enum: ['green', 'yellow', 'red'], required: true },
+      educationLevel: { type: String, required: true },
+      subjectArea: { type: String, required: true },
+      events: [{
+        type: { type: String, required: true },
+        at: { type: Date, required: true },
+        riskScore: { type: Number, required: true },
+        riskLevel: { type: String, enum: ['green', 'yellow', 'red'], required: true },
+        details: {
+          isRapid: { type: Boolean, required: false },
+          isCorrect: { type: Boolean, required: false },
+          isMeaningfulAttempt: { type: Boolean, required: false },
+        },
+      }],
+    },
+    required: false,
+    select: false,
+  },
   teacherNotes: {
     type: [{
       body: { type: String, required: true, trim: true },

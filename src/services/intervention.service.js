@@ -3,6 +3,7 @@ const viMessages = require('../locales/vi.json');
 
 const RAPID_HINT_THRESHOLD_MS = 10 * 1000;
 const MAX_EXTRA_HINTS = 4;
+const BASELINE_RISK_SCORE = 78;
 const GATE_RESPONSE_TYPES = ['attempt', 'blocker_choice', 'quiz_choice', 'reflection'];
 const BLOCKER_IDS = ['understand_question', 'formula', 'start', 'calculation'];
 const SUPPORT_OPTION_IDS = ['understand_question', 'theory', 'start', 'calculation', 'creative'];
@@ -72,6 +73,7 @@ const ensureMetrics = (conversation) => {
   metrics.hintRequests ??= 0;
   metrics.rapidHintRequests ??= 0;
   metrics.answerAttempts ??= 0;
+  metrics.meaningfulAttempts ??= metrics.hasMeaningfulAttempt ? 1 : 0;
   metrics.answerChecks ??= 0;
   metrics.correctAnswers ??= 0;
   metrics.incorrectAnswers ??= 0;
@@ -82,8 +84,8 @@ const ensureMetrics = (conversation) => {
   metrics.hasCheckedAnswer ??= false;
   metrics.hasRevisedAfterFeedback ??= false;
   metrics.identifiedBlocker ??= false;
-  metrics.lastRiskScore ??= 0;
-  metrics.lastRiskLevel ??= 'green';
+  metrics.lastRiskScore ??= BASELINE_RISK_SCORE;
+  metrics.lastRiskLevel ??= 'red';
   metrics.activeGate ??= { active: false };
   metrics.activeGate.active ??= false;
 
@@ -95,6 +97,7 @@ const toPlainMetrics = (metrics) => ({
   lastHintAt: metrics.lastHintAt || null,
   rapidHintRequests: metrics.rapidHintRequests || 0,
   answerAttempts: metrics.answerAttempts || 0,
+  meaningfulAttempts: metrics.meaningfulAttempts || (metrics.hasMeaningfulAttempt ? 1 : 0),
   answerChecks: metrics.answerChecks || 0,
   correctAnswers: metrics.correctAnswers || 0,
   incorrectAnswers: metrics.incorrectAnswers || 0,
@@ -104,6 +107,7 @@ const toPlainMetrics = (metrics) => ({
   hasMeaningfulAttempt: !!metrics.hasMeaningfulAttempt,
   hasCheckedAnswer: !!metrics.hasCheckedAnswer,
   hasRevisedAfterFeedback: !!metrics.hasRevisedAfterFeedback,
+  identifiedBlocker: !!metrics.identifiedBlocker,
 });
 
 const getProgress = (metrics) => ({
@@ -118,42 +122,21 @@ const getFullAnswerRequirements = (metrics) => ({
   hasMeaningfulAttempt: !!metrics.hasMeaningfulAttempt,
 });
 
-const getHintRisk = (hintRequests = 0) => {
-  let score = 0;
-
-  for (let i = 1; i <= hintRequests; i += 1) {
-    if (i === 1) score += 5;
-    else if (i === 2) score += 10;
-    else if (i === 3) score += 15;
-    else score += 25;
-  }
-
-  return score;
-};
-
 const calculateRiskScore = (rawMetrics = {}) => {
   const metrics = toPlainMetrics(rawMetrics);
-  let score = getHintRisk(metrics.hintRequests);
+  let score = BASELINE_RISK_SCORE;
 
-  score += metrics.rapidHintRequests * 20;
+  score += 5 * Math.min(metrics.hintRequests, 3);
+  score += 8 * Math.max(metrics.hintRequests - 3, 0);
+  score += 12 * Math.min(metrics.rapidHintRequests, 2);
+  score += 16 * Math.min(metrics.fullAnswerRequests, 2);
+  if (metrics.hintRequests > 0 && metrics.meaningfulAttempts === 0) score += 8;
 
-  if (metrics.hintRequests > 0 && !metrics.hasAttemptedAnswer) {
-    score += 20;
-  }
-
-  score += metrics.fullAnswerRequests * 25;
-
-  if (metrics.hasAttemptedAnswer || metrics.answerAttempts > 0) {
-    score -= 15;
-  }
-
-  if (metrics.hasRevisedAfterFeedback) {
-    score -= 15;
-  }
-
-  if (metrics.gateCompletions > 0) {
-    score -= 20;
-  }
+  score -= 18 * Math.min(metrics.meaningfulAttempts, 2);
+  score -= 18 * Math.min(metrics.correctAnswers, 2);
+  if (metrics.hasRevisedAfterFeedback) score -= 12;
+  score -= 7 * Math.min(metrics.gateCompletions, 2);
+  if (metrics.identifiedBlocker) score -= 4;
 
   return clamp(score);
 };
@@ -510,10 +493,8 @@ const evaluateHintRequest = (conversation, language = 'en', gateResponse = null)
   const projectedLevel = getRiskLevel(projectedScore);
   const hasNoAttempt = !metrics.hasAttemptedAnswer && metrics.answerAttempts === 0;
   const isRapidNow = projected.rapidHintRequests > (metrics.rapidHintRequests || 0);
-  const shouldGate = !hasGateResponse && (
-    (hasNoAttempt && projected.hintRequests >= 2) ||
-    (hasNoAttempt && projectedLevel !== 'green') ||
-    (hasNoAttempt && isRapidNow)
+  const shouldGate = !hasGateResponse && hasNoAttempt && (
+    projected.hintRequests >= 2 || isRapidNow
   );
 
   if (shouldGate) {
@@ -612,7 +593,10 @@ const recordStudentAttempt = (conversation, hasMeaningfulAttempt = false) => {
   const metrics = ensureMetrics(conversation);
   metrics.answerAttempts += 1;
   metrics.hasAttemptedAnswer = true;
-  metrics.hasMeaningfulAttempt ||= hasMeaningfulAttempt;
+  if (hasMeaningfulAttempt) {
+    metrics.meaningfulAttempts += 1;
+    metrics.hasMeaningfulAttempt = true;
+  }
 
   if (metrics.answerChecks > 0 || metrics.incorrectAnswers > 0) {
     metrics.hasRevisedAfterFeedback = true;
@@ -708,6 +692,9 @@ module.exports = {
   recordDependencyEvent,
   recordGateResponse,
   recordStudentAttempt,
+  calculateRiskScore,
+  getRiskLevel,
+  BASELINE_RISK_SCORE,
   setActiveGateMiniQuiz,
   updateRisk,
 };

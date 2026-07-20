@@ -141,6 +141,10 @@ const interventionMetricsSchema = new mongoose.Schema({
         default: 0,
     },
     answerAttempts: {
+      type: Number,
+      default: 0,
+    },
+    meaningfulAttempts: {
         type: Number,
         default: 0,
     },

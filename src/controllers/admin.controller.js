@@ -11,7 +11,9 @@ const getFilters = (query) => ({
   riskLevel: allowed(query.riskLevel, ['green', 'yellow', 'red']),
   search: query.search,
   metric: allowed(query.metric, ['risk', 'hints', 'fullAnswers', 'attemptRate', 'correctRate']) || 'risk',
-  groupBy: allowed(query.groupBy, ['day', 'week', 'subject', 'riskLevel']) || 'day',
+  groupBy: allowed(query.groupBy, ['day', 'week', 'month', 'subject', 'riskLevel']) || 'day',
+  sortBy: allowed(query.sortBy, ['name', 'source', 'baselineScore', 'behavioralRisk', 'improvement', 'riskLevel', 'attemptRate', 'correctRate', 'latestActivity']) || 'behavioralRisk',
+  sortOrder: allowed(query.sortOrder, ['asc', 'desc']) || 'desc',
   page: query.page,
   limit: query.limit,
 });
@@ -19,7 +21,7 @@ const getFilters = (query) => ({
 const loadAnalytics = async (filters) => {
   // ponytail: in-memory aggregation is sufficient for the current school-sized dataset; move to Mongo aggregation if it grows materially.
   const [users, conversations] = await Promise.all([
-    User.find({ role: { $ne: 'admin' } }).select('name username dependencyAssessments createdAt').lean(),
+    User.find({ role: { $ne: 'admin' } }).select('name username dependencyAssessments createdAt +analyticsDemo').lean(),
     Conversation.find({}).select('user educationLevel subjectArea interventionMetrics dependencyEvents updatedAt').lean(),
   ]);
   return { users, conversations, analytics: buildAnalytics(users, conversations, filters) };
@@ -28,7 +30,7 @@ const loadAnalytics = async (filters) => {
 const getAnalytics = async (req, res) => {
   try {
     const { analytics } = await loadAnalytics(getFilters(req.query));
-    return res.json({ success: true, summary: analytics.summary, chart: analytics.chart, students: analytics.students, pagination: analytics.pagination });
+    return res.json({ success: true, summary: analytics.summary, chart: analytics.chart, breakdowns: analytics.breakdowns, students: analytics.students, pagination: analytics.pagination });
   } catch (error) {
     console.error('Admin analytics error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -39,7 +41,7 @@ const getStudent = async (req, res) => {
   try {
     const filters = getFilters(req.query);
     const user = await User.findOne({ _id: req.params.id, role: { $ne: 'admin' } })
-      .select('name username dependencyAssessments +teacherNotes').lean();
+      .select('name username dependencyAssessments +teacherNotes +analyticsDemo').lean();
     if (!user) return res.status(404).json({ error: 'Student not found' });
     const conversations = await Conversation.find({ user: user._id })
       .select('user educationLevel subjectArea interventionMetrics dependencyEvents updatedAt').lean();
@@ -61,11 +63,11 @@ const addNote = async (req, res) => {
   const body = String(req.body?.body || '').trim();
   if (!body || body.length > 2000) return res.status(400).json({ error: 'Note must be between 1 and 2000 characters' });
   try {
-    const student = await User.findOne({ _id: req.params.id, role: { $ne: 'admin' } }).select('+teacherNotes');
+    const student = await User.findOne({ _id: req.params.id, role: { $ne: 'admin' } }).select('_id').lean();
     if (!student) return res.status(404).json({ error: 'Student not found' });
-    student.teacherNotes.push({ body, author: req.user._id });
-    await student.save();
-    return res.status(201).json({ success: true, note: student.teacherNotes[student.teacherNotes.length - 1] });
+    const note = { body, author: req.user._id, createdAt: new Date() };
+    await User.updateOne({ _id: student._id }, { $push: { teacherNotes: note } });
+    return res.status(201).json({ success: true, note });
   } catch (error) {
     return res.status(400).json({ error: 'Invalid student request' });
   }
@@ -83,8 +85,8 @@ const exportAnalytics = async (req, res) => {
     filters.page = 1;
     filters.limit = 100000;
     const { analytics } = await loadAnalytics(filters);
-    const headers = ['Tên', 'Username', 'Điểm hành vi', 'Mức rủi ro', 'Quiz gần nhất', 'Số chat', 'Gợi ý', 'Gợi ý nhanh', 'Yêu cầu lời giải', 'Tỷ lệ tự thử', 'Tỷ lệ đúng', 'Hoàn thành can thiệp', 'Hoạt động gần nhất'];
-    const rows = analytics.exportStudents.map(student => [student.name, student.username, student.behavioralRisk, student.riskLevel, student.quiz?.score ?? '', student.conversations, student.hintRequests, student.rapidHintRequests, student.fullAnswerRequests, `${student.attemptRate}%`, `${student.correctRate}%`, student.gateCompletions, student.latestActivity ? new Date(student.latestActivity).toISOString() : '']);
+    const headers = ['Tên', 'Username', 'Nguồn', 'Điểm đầu', 'Điểm hiện tại', 'Đã giảm', 'Mức rủi ro', 'Khuyến nghị', 'Quiz gần nhất', 'Số chat', 'Gợi ý', 'Gợi ý nhanh', 'Yêu cầu lời giải', 'Tỷ lệ tự thử', 'Tỷ lệ đúng', 'Hoàn thành can thiệp', 'Hoạt động gần nhất'];
+    const rows = analytics.exportStudents.map(student => [student.name, student.username, student.source, student.baselineScore, student.behavioralRisk, student.improvement, student.riskLevel, student.recommendation, student.quiz?.score ?? '', student.conversations, student.hintRequests, student.rapidHintRequests, student.fullAnswerRequests, `${student.attemptRate}%`, `${student.correctRate}%`, student.gateCompletions, student.latestActivity ? new Date(student.latestActivity).toISOString() : '']);
     const csv = [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\n');
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="student-dependency-analytics.csv"');

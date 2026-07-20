@@ -26,6 +26,23 @@ test('records timestamped dependency events for dashboard analytics', () => {
   assert.ok(conversation.dependencyEvents.every(event => event.at && Number.isFinite(event.riskScore)));
 });
 
+test('starts high, penalizes dependent use, and rewards verified learning progress', () => {
+  assert.equal(InterventionService.calculateRiskScore({}), 78);
+  assert.equal(InterventionService.getRiskLevel(78), 'red');
+  assert.equal(InterventionService.calculateRiskScore({ hintRequests: 1 }), 91);
+  assert.equal(InterventionService.calculateRiskScore({ meaningfulAttempts: 1 }), 60);
+  assert.equal(InterventionService.calculateRiskScore({ meaningfulAttempts: 1, correctAnswers: 1 }), 42);
+  assert.equal(InterventionService.calculateRiskScore({ meaningfulAttempts: 1, correctAnswers: 1, hasRevisedAfterFeedback: true }), 30);
+});
+
+test('does not gate the first hint solely because the baseline is high', () => {
+  const conversation = createConversation();
+  const result = InterventionService.evaluateHintRequest(conversation, 'vi');
+
+  assert.equal(result.allowed, true);
+  assert.equal(conversation.interventionMetrics.lastRiskScore, 91);
+});
+
 test('guides repeated hint requests from blocker choice to a mini quiz', () => {
   const conversation = createConversation();
 
