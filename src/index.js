@@ -10,6 +10,8 @@ const leaderboardRoutes = require('./routes/leaderboard.route');
 const quizRoutes = require('./routes/quiz.route');
 const practiceRoutes = require('./routes/practice.route');
 const auth = require('./middleware/auth');
+const requireAdmin = require('./middleware/require-admin');
+const adminRoutes = require('./routes/admin.route');
 
 // Connect to MongoDB
 connectDB();
@@ -34,6 +36,7 @@ app.use('/api/user', auth, userRoutes);
 app.use('/api/leaderboard', auth, leaderboardRoutes);
 app.use('/api/quiz', quizRoutes);
 app.use('/api/practice', auth, practiceRoutes);
+app.use('/api/admin', auth, requireAdmin, adminRoutes);
 
 app.get('/', (req, res) => {
   res.send('Chatbot API is running!');

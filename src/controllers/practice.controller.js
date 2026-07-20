@@ -1,15 +1,24 @@
 const PracticeItem = require('../models/practice-item.model');
 const mongoose = require('mongoose');
 const {
+  addAssistantTurn,
+  addPracticeTurn,
   applyPracticeResult,
+  canShowPracticeSolution,
   ensurePractice,
   evaluatePracticeAttempt,
+  requestPracticeGuidance,
   toPublicPracticeItem,
 } = require('../services/practice.service');
 
 const getItemForUser = (userId, itemId) => mongoose.isValidObjectId(itemId)
   ? PracticeItem.findOne({ _id: itemId, user: userId })
   : null;
+
+const parsePagination = (value, fallback, maximum) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? Math.min(parsed, maximum) : fallback;
+};
 
 const getRecommendation = async (req, res) => {
   try {
@@ -37,8 +46,24 @@ const getItems = async (req, res) => {
       filter.subjectArea = req.query.subjectArea;
     }
 
-    const items = await PracticeItem.find(filter).sort({ nextReviewAt: 1, updatedAt: -1 });
-    return res.json({ items: items.map(toPublicPracticeItem) });
+    const limit = parsePagination(req.query.limit, 6, 24);
+    const requestedPage = parsePagination(req.query.page, 1, 100000);
+    const [totalItems, subjects] = await Promise.all([
+      PracticeItem.countDocuments(filter),
+      PracticeItem.distinct('subjectArea', { user: req.user._id }),
+    ]);
+    const totalPages = Math.max(1, Math.ceil(totalItems / limit));
+    const page = Math.min(requestedPage, totalPages);
+    const items = await PracticeItem.find(filter)
+      .sort({ nextReviewAt: 1, updatedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    return res.json({
+      items: items.map(toPublicPracticeItem),
+      subjects: subjects.filter(Boolean),
+      pagination: { page, limit, totalItems, totalPages },
+    });
   } catch (error) {
     console.error('Error fetching practice items:', error);
     return res.status(500).json({ message: 'Unable to fetch practice items' });
@@ -62,8 +87,9 @@ const getItem = async (req, res) => {
 
 const submitAttempt = async (req, res) => {
   try {
+    const action = ['attempt', 'hint', 'solution'].includes(req.body?.action) ? req.body.action : 'attempt';
     const answer = String(req.body?.answer || '').trim();
-    if (!answer || answer.length > 1200) {
+    if (action === 'attempt' && (!answer || answer.length > 1200)) {
       return res.status(400).json({ message: 'A practice answer is required' });
     }
 
@@ -73,12 +99,35 @@ const submitAttempt = async (req, res) => {
     }
 
     await ensurePractice(item, req.body?.language || 'en');
-    const result = await evaluatePracticeAttempt(item, answer, req.body?.language || 'en');
-    applyPracticeResult(item, result.isCorrect);
+    if (action === 'solution' && !canShowPracticeSolution(item)) {
+      return res.status(400).json({ message: 'Complete two meaningful incorrect attempts before viewing the sample solution' });
+    }
+
+    const language = req.body?.language || 'en';
+    let result;
+    if (action === 'attempt') {
+      addPracticeTurn(item, { role: 'student', action, content: answer });
+      result = await evaluatePracticeAttempt(item, answer, language);
+      if (result.isCorrect === false && result.isMeaningfulAttempt) {
+        item.practice.incorrectAttempts = Number(item.practice.incorrectAttempts || 0) + 1;
+      }
+      if (typeof result.isCorrect === 'boolean') applyPracticeResult(item, result.isCorrect);
+    } else {
+      addPracticeTurn(item, {
+        role: 'student',
+        action,
+        content: action === 'hint'
+          ? (language === 'vi' ? 'Em muốn thêm một gợi ý.' : 'I would like another hint.')
+          : (language === 'vi' ? 'Em muốn xem lời giải mẫu.' : 'I would like to see the sample solution.'),
+      });
+      result = await requestPracticeGuidance(item, action, '', language);
+    }
+    addAssistantTurn(item, action, result);
     await item.save();
 
     return res.json({
       ...result,
+      action,
       item: toPublicPracticeItem(item),
     });
   } catch (error) {
@@ -108,5 +157,6 @@ module.exports = {
   getItem,
   getItems,
   getRecommendation,
+  parsePagination,
   submitAttempt,
 };

@@ -69,12 +69,14 @@ const checkAnswer = async (req, res, imageData = null) => {
   } else if (isCorrect === false) {
     responseText ||= getMessages(language).messages.tryAgain;
     InterventionService.recordStudentAttempt(conversation, evaluation.isMeaningfulAttempt);
-    InterventionService.recordAnswerCheck(conversation, false);
+    InterventionService.recordAnswerCheck(conversation, false, evaluation.isMeaningfulAttempt);
     responseText += InterventionService.getFoundationSupportMessage(conversation, language);
-  }
-  if (isCorrect === true) {
+  } else if (isCorrect === true) {
     InterventionService.recordStudentAttempt(conversation, evaluation.isMeaningfulAttempt);
-    InterventionService.recordAnswerCheck(conversation, true);
+    InterventionService.recordAnswerCheck(conversation, true, evaluation.isMeaningfulAttempt);
+  } else {
+    InterventionService.recordStudentAttempt(conversation, evaluation.isMeaningfulAttempt);
+    InterventionService.recordAnswerCheck(conversation, null, evaluation.isMeaningfulAttempt);
   }
 
   conversation.history.push({
@@ -88,7 +90,7 @@ const checkAnswer = async (req, res, imageData = null) => {
 
   if (isCorrect === false) {
     try {
-      await capturePracticeItem({ userId: req.user._id, conversation, blocker: 'incorrect_answer', feedback: responseText });
+      await capturePracticeItem({ userId: req.user._id, conversation, blocker: 'incorrect_answer', feedback: responseText, language });
     } catch (error) {
       console.error('Error capturing practice item:', error.message);
     }

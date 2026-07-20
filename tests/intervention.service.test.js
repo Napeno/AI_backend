@@ -3,12 +3,27 @@ const test = require('node:test');
 const InterventionService = require('../src/services/intervention.service');
 const { parseCheckAnswerResponse } = require('../src/controllers/chat/check-answer.controller');
 const { getErrorDetails } = require('../src/controllers/chat/continue-chat.controller');
+const { shouldUpdateProblemContext } = require('../src/controllers/chat/image-chat.controller');
 const { buildCheckAnswerPrompt, normalizeMathAnswer } = require('../src/services/prompt.service');
 const { getProblemContext } = require('../src/services/chat-check.service');
 
 const createConversation = () => ({
   interventionMetrics: {},
+  dependencyEvents: [],
   markModified() {},
+});
+
+test('records timestamped dependency events for dashboard analytics', () => {
+  const conversation = createConversation();
+
+  InterventionService.evaluateHintRequest(conversation, 'vi');
+  InterventionService.recordAnswerCheck(conversation, false, true);
+  InterventionService.recordGateResponse(conversation, { type: 'reflection', value: 'Em sẽ thử viết công thức.' }, 'vi');
+
+  assert.deepEqual(conversation.dependencyEvents.map(event => event.type), ['hint_requested', 'answer_checked', 'gate_completed']);
+  assert.equal(conversation.dependencyEvents[0].details.isRapid, false);
+  assert.equal(conversation.dependencyEvents[1].details.isMeaningfulAttempt, true);
+  assert.ok(conversation.dependencyEvents.every(event => event.at && Number.isFinite(event.riskScore)));
 });
 
 test('guides repeated hint requests from blocker choice to a mini quiz', () => {
@@ -32,6 +47,28 @@ test('guides repeated hint requests from blocker choice to a mini quiz', () => {
   const quizGate = InterventionService.evaluateHintRequest(conversation, 'vi');
   assert.equal(quizGate.allowed, false);
   assert.equal(quizGate.intervention.type, 'mini_quiz_gate');
+});
+
+test('handles every support choice without consuming a hint request', () => {
+  for (const value of ['understand_question', 'theory', 'start', 'calculation', 'creative']) {
+    const conversation = createConversation();
+    conversation.interventionMetrics.hintRequests = 1;
+
+    const result = InterventionService.evaluateSupportChoice(conversation, 'vi', {
+      type: 'support_choice',
+      value,
+    });
+
+    assert.equal(result.allowed, true);
+    assert.equal(conversation.interventionMetrics.hintRequests, 1);
+    assert.equal(conversation.interventionMetrics.lastBlocker, value);
+    assert.ok(InterventionService.getBlockerSupportPrompt({ type: 'support_choice', value }, 'vi'));
+  }
+});
+
+test('keeps the original problem context for a student-work image', () => {
+  assert.equal(shouldUpdateProblemContext('student_work'), false);
+  assert.equal(shouldUpdateProblemContext(), true);
 });
 
 test('only unlocks a full answer after all hints and a meaningful attempt', () => {

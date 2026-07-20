@@ -1,9 +1,55 @@
 const mongoose = require('mongoose');
 
+const practiceTurnSchema = new mongoose.Schema({
+  role: {
+    type: String,
+    enum: ['student', 'assistant'],
+    required: true,
+  },
+  action: {
+    type: String,
+    enum: ['attempt', 'hint', 'solution'],
+    required: true,
+  },
+  content: {
+    type: String,
+    required: true,
+    maxlength: 2000,
+  },
+  hint: {
+    type: String,
+    maxlength: 1200,
+  },
+  nextQuestion: {
+    type: String,
+    maxlength: 1200,
+  },
+  isCorrect: {
+    type: Boolean,
+    required: false,
+  },
+  isMeaningfulAttempt: {
+    type: Boolean,
+    required: false,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+}, { _id: false });
+
 const practiceSchema = new mongoose.Schema({
   prompt: { type: String, required: false },
   hint: { type: String, required: false },
   answerGuide: { type: String, required: false },
+  turns: {
+    type: [practiceTurnSchema],
+    default: [],
+  },
+  incorrectAttempts: {
+    type: Number,
+    default: 0,
+  },
 }, { _id: false });
 
 const practiceItemSchema = new mongoose.Schema({

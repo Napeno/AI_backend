@@ -5,6 +5,7 @@ const RAPID_HINT_THRESHOLD_MS = 10 * 1000;
 const MAX_EXTRA_HINTS = 4;
 const GATE_RESPONSE_TYPES = ['attempt', 'blocker_choice', 'quiz_choice', 'reflection'];
 const BLOCKER_IDS = ['understand_question', 'formula', 'start', 'calculation'];
+const SUPPORT_OPTION_IDS = ['understand_question', 'theory', 'start', 'calculation', 'creative'];
 
 const DEFAULT_COPY = {
   vi: {
@@ -12,6 +13,12 @@ const DEFAULT_COPY = {
     fullAnswerGate: 'ThinkBridge sẽ chưa mở đáp án đầy đủ ngay. Em trả lời một câu hỏi nhỏ hoặc viết một bước thử làm trước nhé.',
     stepByStepGate: 'ThinkBridge nhận thấy em đang xin khá nhiều gợi ý mà chưa thử làm. Mình kiểm tra một bước nền tảng thật dễ trước rồi đi tiếp nhé.',
     options: [
+      { id: 'understand_question', label: 'Giúp em hiểu đề' },
+      { id: 'theory', label: 'Nhắc lại lý thuyết' },
+      { id: 'calculation', label: 'Kiểm tra lỗi sai' },
+      { id: 'creative', label: 'Tìm cách sáng tạo hơn' },
+    ],
+    blockerOptions: [
       { id: 'understand_question', label: 'Em chưa hiểu đề' },
       { id: 'formula', label: 'Em không nhớ công thức' },
       { id: 'start', label: 'Em không biết bắt đầu' },
@@ -23,6 +30,12 @@ const DEFAULT_COPY = {
     fullAnswerGate: 'ThinkBridge will not open the full answer just yet. Answer one small question or write one attempted step first.',
     stepByStepGate: 'ThinkBridge noticed several quick hint requests before an attempt. Let us check one easy foundation step first, then continue.',
     options: [
+      { id: 'understand_question', label: 'Help me understand the problem' },
+      { id: 'theory', label: 'Review the theory' },
+      { id: 'calculation', label: 'Check my mistake' },
+      { id: 'creative', label: 'Find a more creative way' },
+    ],
+    blockerOptions: [
       { id: 'understand_question', label: 'I do not understand the question' },
       { id: 'formula', label: 'I do not remember the formula' },
       { id: 'start', label: 'I do not know how to start' },
@@ -38,6 +51,7 @@ const getCopy = (language = 'en') => {
     ...fallback,
     ...(base.messages?.intervention || {}),
     options: base.messages?.intervention?.options || fallback.options,
+    blockerOptions: base.messages?.intervention?.blockerOptions || fallback.blockerOptions,
   };
 };
 
@@ -161,6 +175,21 @@ const updateRisk = (conversation, metrics = ensureMetrics(conversation)) => {
   return { score, level };
 };
 
+const recordDependencyEvent = (conversation, type, details = {}, at = new Date()) => {
+  const metrics = ensureMetrics(conversation);
+  conversation.dependencyEvents ??= [];
+  conversation.dependencyEvents.push({
+    type,
+    at,
+    riskScore: metrics.lastRiskScore || 0,
+    riskLevel: metrics.lastRiskLevel || 'green',
+    details,
+  });
+  if (typeof conversation.markModified === 'function') {
+    conversation.markModified('dependencyEvents');
+  }
+};
+
 const getNextHintTier = (metrics) => {
   return Math.min((metrics.hintRequests || 0) + 2, 4);
 };
@@ -200,7 +229,7 @@ const buildCurrentGatePayload = (conversation, language = 'en', messageOverride 
       level,
       type,
       requiredAction: gate.requiredAction || 'mini_quiz_or_reflection',
-      options: gate.requiredAction === 'choose_blocker' ? getCopy(language).options : [],
+      options: gate.requiredAction === 'choose_blocker' ? getCopy(language).blockerOptions : [],
       miniQuiz: getPublicMiniQuiz(gate.miniQuiz),
       canRequestHint: false,
       canRequestFullAnswer: false,
@@ -273,6 +302,15 @@ const validateGateResponse = (gateResponse) => {
   return { type, value };
 };
 
+const validateSupportChoice = (gateResponse) => {
+  if (!gateResponse || gateResponse.type !== 'support_choice') {
+    return null;
+  }
+
+  const value = String(gateResponse.value || '').trim();
+  return SUPPORT_OPTION_IDS.includes(value) ? { type: 'support_choice', value } : null;
+};
+
 const getIncorrectQuizMessage = (miniQuiz, language = 'en') => {
   const hint = String(miniQuiz?.explanation || '').trim();
   const prefix = language === 'vi'
@@ -289,8 +327,8 @@ const getIncorrectQuizMessage = (miniQuiz, language = 'en') => {
 };
 
 const getBlockerSupportPrompt = (gateResponse, language = 'en') => {
-  const response = validateGateResponse(gateResponse);
-  if (response?.type !== 'blocker_choice') {
+  const response = validateSupportChoice(gateResponse) || validateGateResponse(gateResponse);
+  if (!response || !['blocker_choice', 'support_choice'].includes(response.type)) {
     return null;
   }
 
@@ -298,22 +336,26 @@ const getBlockerSupportPrompt = (gateResponse, language = 'en') => {
     ? {
       understand_question: 'Học sinh chưa hiểu đề. Hãy tách ngắn gọn dữ kiện đã cho và điều cần tìm, rồi yêu cầu em nhắc lại một ý. Không giải bài.',
       formula: 'Học sinh không nhớ công thức. Hãy nhắc đúng khái niệm hoặc công thức cần xét, giải thích khi nào dùng và yêu cầu em xác nhận có phù hợp với bài này không. Không giải bài.',
+      theory: 'Học sinh muốn nhắc lại lý thuyết. Hãy nêu ngắn gọn khái niệm hoặc công thức liên quan, khi nào dùng, kèm một ví dụ rất ngắn. Không giải bài.',
       start: 'Học sinh chưa biết bắt đầu. Hãy nêu đúng một thao tác đầu tiên thật cụ thể, rồi hỏi em sẽ làm gì tiếp theo. Không giải bài.',
-      calculation: 'Học sinh nghi sai tính toán. Hãy yêu cầu em kiểm tra một phép tính hoặc một dòng biến đổi cụ thể trước. Không đưa đáp án cuối.',
+      calculation: 'Học sinh muốn kiểm tra lỗi sai. Hãy yêu cầu em gửi một dòng biến đổi, bước làm hoặc ảnh bài làm đang nghi ngờ; sau đó mới chỉ lỗi về số, dấu, đơn vị hoặc lập luận. Không đưa đáp án cuối.',
+      creative: 'Học sinh muốn một cách sáng tạo hơn. Hãy gợi ý một cách biểu diễn, góc nhìn hoặc chiến lược khác để thử, rồi hỏi em muốn thử cách nào. Không giải toàn bài.',
     }
     : {
       understand_question: 'The student does not understand the problem. Briefly separate the given information from what is asked, then ask the student to repeat one key point. Do not solve it.',
       formula: 'The student does not remember the formula. Remind the relevant idea or formula, explain when it applies, and ask whether it fits this problem. Do not solve it.',
+      theory: 'The student wants a theory review. Briefly state the relevant idea or formula, when it applies, and give one tiny example. Do not solve the problem.',
       start: 'The student does not know how to start. Give exactly one concrete first action, then ask what they would do next. Do not solve it.',
-      calculation: 'The student thinks the calculation is wrong. Ask them to check one calculation or transformation line first. Do not give the final answer.',
+      calculation: 'The student wants to check a mistake. Ask them to send one working line, step, or image they doubt; then inspect numbers, signs, units, or reasoning. Do not give the final answer.',
+      creative: 'The student wants a more creative approach. Suggest one alternative representation, viewpoint, or strategy and ask which one they want to try. Do not solve the whole problem.',
     };
 
   return prompts[response.value] || null;
 };
 
 const getBlockerSupportFallback = (gateResponse, language = 'en') => {
-  const response = validateGateResponse(gateResponse);
-  if (response?.type !== 'blocker_choice') {
+  const response = validateSupportChoice(gateResponse) || validateGateResponse(gateResponse);
+  if (!response || !['blocker_choice', 'support_choice'].includes(response.type)) {
     return null;
   }
 
@@ -321,17 +363,49 @@ const getBlockerSupportFallback = (gateResponse, language = 'en') => {
     ? {
       understand_question: 'Mình tách đề ra trước nhé: em hãy viết ngắn gọn đề đã cho gì và đang hỏi tìm gì.',
       formula: 'Em thử nêu công thức hoặc khái niệm em nghĩ có liên quan, rồi mình cùng xem nó có hợp với bài không nhé.',
+      theory: 'Mình nhắc nhanh kiến thức nền trước nhé: em thử nêu khái niệm hoặc công thức em đang nghĩ tới.',
       start: 'Em hãy làm đúng một việc đầu tiên: khoanh hoặc viết lại dữ kiện rõ nhất trong đề.',
-      calculation: 'Em chọn một phép tính hoặc một dòng biến đổi em nghi ngờ, rồi kiểm tra lại từng số và dấu nhé.',
+      calculation: 'Em gửi một dòng biến đổi hoặc ảnh bước làm em nghi ngờ, mình sẽ cùng tìm lỗi về số, dấu hoặc cách lập luận nhé.',
+      creative: 'Em thử chọn một cách nhìn khác: vẽ sơ đồ, đặt ẩn, lập bảng hoặc diễn đạt lại đề bằng lời của mình nhé.',
     }
     : {
       understand_question: 'Let us split the problem first: briefly write what is given and what it asks for.',
       formula: 'Name the formula or idea you think may apply, then we can check whether it fits the problem.',
+      theory: 'Let us review the foundation first: name the idea or formula you think is relevant.',
       start: 'Do one first action: underline or write down the clearest given information.',
-      calculation: 'Choose one calculation or transformation line you doubt, then check each number and sign.',
+      calculation: 'Send one working line or an image of the step you doubt, then we can check the numbers, signs, and reasoning together.',
+      creative: 'Try a different view: draw a diagram, make a table, use a variable, or restate the problem in your own words.',
     };
 
   return messages[response.value] || null;
+};
+
+const evaluateSupportChoice = (conversation, language = 'en', gateResponse = null) => {
+  const choice = validateSupportChoice(gateResponse);
+  const metrics = ensureMetrics(conversation);
+
+  if (!choice) {
+    return {
+      allowed: false,
+      message: language === 'vi' ? 'Lựa chọn hỗ trợ chưa hợp lệ. Em thử chọn lại nhé.' : 'That support choice is not valid. Please choose again.',
+      intervention: buildInactiveIntervention(conversation, language),
+    };
+  }
+
+  if (metrics.activeGate?.active) {
+    return { allowed: false, ...buildActiveGateResponse(conversation, language) };
+  }
+
+  metrics.identifiedBlocker = true;
+  metrics.lastBlocker = choice.value;
+  updateRisk(conversation, metrics);
+  recordDependencyEvent(conversation, 'blocker_selected', { blocker: choice.value });
+  markMetricsModified(conversation);
+
+  return {
+    allowed: true,
+    intervention: buildInactiveIntervention(conversation, language),
+  };
 };
 
 const recordGateResponse = (conversation, gateResponse, language = 'en') => {
@@ -347,6 +421,7 @@ const recordGateResponse = (conversation, gateResponse, language = 'en') => {
     metrics.lastBlocker = validResponse.value;
     metrics.activeGate = { active: false };
     updateRisk(conversation, metrics);
+    recordDependencyEvent(conversation, 'blocker_selected', { blocker: validResponse.value });
     markMetricsModified(conversation);
     return { accepted: true, type: validResponse.type };
   }
@@ -372,6 +447,7 @@ const recordGateResponse = (conversation, gateResponse, language = 'en') => {
 
   metrics.activeGate = { active: false };
   updateRisk(conversation, metrics);
+  recordDependencyEvent(conversation, 'gate_completed');
   markMetricsModified(conversation);
 
   return { accepted: true, type: validResponse.type };
@@ -394,12 +470,16 @@ const projectHintRequest = (metrics, now = new Date()) => {
 const recordHintRequest = (conversation, now = new Date()) => {
   const metrics = ensureMetrics(conversation);
   const projected = projectHintRequest(metrics, now);
+  const isRapid = projected.rapidHintRequests > (metrics.rapidHintRequests || 0);
 
   metrics.hintRequests = projected.hintRequests;
   metrics.lastHintAt = now;
   metrics.rapidHintRequests = projected.rapidHintRequests;
   metrics.activeGate = { active: false };
   updateRisk(conversation, metrics);
+  recordDependencyEvent(conversation, 'hint_requested', {
+    isRapid,
+  }, now);
   markMetricsModified(conversation);
 
   return metrics;
@@ -441,7 +521,7 @@ const evaluateHintRequest = (conversation, language = 'en', gateResponse = null)
     metrics.lastRiskLevel = projectedLevel;
     markMetricsModified(conversation);
 
-    return {
+    const result = {
       allowed: false,
       ...buildGateIntervention(
         conversation,
@@ -451,6 +531,8 @@ const evaluateHintRequest = (conversation, language = 'en', gateResponse = null)
         getNextHintTier(metrics)
       ),
     };
+    recordDependencyEvent(conversation, 'gate_opened');
+    return result;
   }
 
   recordHintRequest(conversation);
@@ -465,6 +547,7 @@ const recordFullAnswerRequest = (conversation) => {
   const metrics = ensureMetrics(conversation);
   metrics.fullAnswerRequests += 1;
   updateRisk(conversation, metrics);
+  recordDependencyEvent(conversation, 'full_answer_requested');
   markMetricsModified(conversation);
   return metrics;
 };
@@ -492,6 +575,8 @@ const evaluateFullAnswerRequest = (conversation, language = 'en', gateResponse =
 
   if (!hasGateResponse) {
     recordFullAnswerRequest(conversation);
+  } else {
+    recordDependencyEvent(conversation, 'full_answer_requested');
   }
 
   updateRisk(conversation, metrics);
@@ -538,7 +623,7 @@ const recordStudentAttempt = (conversation, hasMeaningfulAttempt = false) => {
   markMetricsModified(conversation);
 };
 
-const recordAnswerCheck = (conversation, isCorrect) => {
+const recordAnswerCheck = (conversation, isCorrect, isMeaningfulAttempt = false) => {
   const metrics = ensureMetrics(conversation);
   metrics.answerChecks += 1;
   metrics.hasCheckedAnswer = true;
@@ -550,6 +635,7 @@ const recordAnswerCheck = (conversation, isCorrect) => {
   }
 
   updateRisk(conversation, metrics);
+  recordDependencyEvent(conversation, 'answer_checked', { isCorrect, isMeaningfulAttempt });
   markMetricsModified(conversation);
 };
 
@@ -611,6 +697,7 @@ module.exports = {
   attachCurrentMiniQuiz,
   buildActiveGateResponse,
   buildInactiveIntervention,
+  evaluateSupportChoice,
   evaluateHintRequest,
   evaluateFullAnswerRequest,
   getFoundationReviewPrompt,
@@ -618,6 +705,7 @@ module.exports = {
   getFoundationSupportMessage,
   getBlockerSupportPrompt,
   recordAnswerCheck,
+  recordDependencyEvent,
   recordGateResponse,
   recordStudentAttempt,
   setActiveGateMiniQuiz,

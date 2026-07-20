@@ -331,6 +331,12 @@
       "fullAnswerGate": "ThinkBridge will not open the full answer just yet. Answer one small question or write one attempted step first.",
       "stepByStepGate": "ThinkBridge noticed several quick hint requests before an attempt. Let us check one easy foundation step first, then continue.",
       "options": [
+        { "id": "understand_question", "label": "Help me understand the problem" },
+        { "id": "theory", "label": "Review the theory" },
+        { "id": "calculation", "label": "Check my mistake" },
+        { "id": "creative", "label": "Find a more creative way" }
+      ],
+      "blockerOptions": [
         { "id": "understand_question", "label": "I do not understand the question" },
         { "id": "formula", "label": "I do not remember the formula" },
         { "id": "start", "label": "I do not know how to start" },

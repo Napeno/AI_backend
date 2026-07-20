@@ -19,6 +19,7 @@ const register = async (req, res) => {
       name,
       username: username.toLowerCase(),
       passwordHash,
+      role: 'student',
     });
 
     const secret = process.env.JWT_SECRET;
@@ -35,6 +36,7 @@ const register = async (req, res) => {
         id: user._id,
         name: user.name,
         username: user.username,
+        role: user.role,
         coins: user.coins || 0,
         points: user.points || 0,
         rank: user.rank || 'iron',

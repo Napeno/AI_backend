@@ -15,6 +15,11 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  role: {
+    type: String,
+    enum: ['student', 'admin'],
+    default: 'student',
+  },
   coins: {
     type: Number,
     default: 0,
@@ -40,6 +45,20 @@ const userSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Avatar',
   }],
+  dependencyAssessments: [{
+    score: { type: Number, required: true },
+    resultId: { type: String, required: true },
+    submittedAt: { type: Date, default: Date.now },
+  }],
+  teacherNotes: {
+    type: [{
+      body: { type: String, required: true, trim: true },
+      author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+      createdAt: { type: Date, default: Date.now },
+    }],
+    default: [],
+    select: false,
+  },
 }, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);

@@ -1,4 +1,11 @@
 const { getQuestionsForClient, calculateScore, quizResults } = require('../data/quiz-questions');
+const { quizQuestions } = require('../data/quiz-questions');
+const User = require('../models/user.model');
+
+const hasValidAnswers = (answers) => quizQuestions.every(question => {
+    const answerId = answers?.[question.id];
+    return question.answers.some(answer => answer.id === answerId);
+});
 
 /**
  * GET /api/quiz/questions
@@ -27,18 +34,29 @@ const getQuestions = (req, res) => {
  * Accepts user answers and returns score + result
  * Body: { answers: { "1": "A", "2": "B", ... } }
  */
-const submitQuiz = (req, res) => {
+const submitQuiz = async (req, res) => {
     try {
         const { answers } = req.body;
 
-        if (!answers || typeof answers !== 'object') {
+        if (!answers || typeof answers !== 'object' || !hasValidAnswers(answers)) {
             return res.status(400).json({
                 success: false,
-                message: 'Vui lòng gửi câu trả lời hợp lệ',
+                message: 'Vui lòng trả lời đầy đủ và hợp lệ tất cả câu hỏi',
             });
         }
 
         const result = calculateScore(answers);
+
+        if (req.user?._id) {
+            await User.updateOne(
+                { _id: req.user._id },
+                { $push: { dependencyAssessments: {
+                    score: result.totalScore,
+                    resultId: result.result.id,
+                    submittedAt: new Date(),
+                } } }
+            );
+        }
 
         res.json({
             success: true,
@@ -67,7 +85,8 @@ const getResults = (req, res) => {
 };
 
 module.exports = {
-    getQuestions,
-    submitQuiz,
-    getResults,
+  getQuestions,
+  submitQuiz,
+  getResults,
+  hasValidAnswers,
 };

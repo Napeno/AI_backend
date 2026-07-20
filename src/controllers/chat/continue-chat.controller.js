@@ -26,7 +26,10 @@ const continueChat = async (req, res) => {
       return res.status(404).json({ error: "Conversation not found" });
     }
 
-    const gateEvaluation = InterventionService.evaluateHintRequest(conversation, language, gateResponse);
+    const isSupportChoice = gateResponse?.type === 'support_choice';
+    const gateEvaluation = isSupportChoice
+      ? InterventionService.evaluateSupportChoice(conversation, language, gateResponse)
+      : InterventionService.evaluateHintRequest(conversation, language, gateResponse);
 
     if (!gateEvaluation.allowed) {
       if (gateEvaluation.intervention.requiredAction === 'mini_quiz_or_reflection') {
@@ -50,12 +53,13 @@ const continueChat = async (req, res) => {
       });
     }
 
-    // Add continue action to conversation history
-    conversation.history.push({ 
-      role: 'continue',
-      parts: [{ text: 'Đang yêu cầu thêm gợi ý...' }],
-      timestamp: new Date()
-    });
+    if (!isSupportChoice) {
+      conversation.history.push({
+        role: 'continue',
+        parts: [{ text: 'Đang yêu cầu thêm gợi ý...' }],
+        timestamp: new Date()
+      });
+    }
 
     const foundationReviewPrompt = InterventionService.getFoundationReviewPrompt(conversation, language);
     const blockerSupportPrompt = InterventionService.getBlockerSupportPrompt(gateResponse, language);
@@ -66,7 +70,7 @@ const continueChat = async (req, res) => {
         language,
         conversation.educationLevel,
         conversation.subjectArea,
-        foundationReviewPrompt || blockerSupportPrompt
+        isSupportChoice ? blockerSupportPrompt : foundationReviewPrompt || blockerSupportPrompt
       );
     } catch (error) {
       modelResponse = InterventionService.getBlockerSupportFallback(gateResponse, language);
@@ -105,6 +109,7 @@ const continueChat = async (req, res) => {
           conversation,
           blocker: gateResponse.value,
           feedback: modelResponse,
+          language,
         });
       } catch (error) {
         console.error('Error capturing practice item from blocker choice:', error);

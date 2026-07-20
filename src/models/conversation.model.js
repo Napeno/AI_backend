@@ -207,6 +207,23 @@ const interventionMetricsSchema = new mongoose.Schema({
     },
 }, { _id: false });
 
+const dependencyEventSchema = new mongoose.Schema({
+    type: {
+        type: String,
+        enum: ['hint_requested', 'full_answer_requested', 'answer_checked', 'gate_completed', 'blocker_selected', 'gate_opened'],
+        required: true,
+    },
+    at: { type: Date, default: Date.now },
+    riskScore: { type: Number, required: true },
+    riskLevel: { type: String, enum: ['green', 'yellow', 'red'], required: true },
+    details: {
+        isRapid: { type: Boolean, required: false },
+        isCorrect: { type: Boolean, required: false },
+        isMeaningfulAttempt: { type: Boolean, required: false },
+        blocker: { type: String, required: false },
+    },
+}, { _id: false });
+
 const conversationSchema = new mongoose.Schema({
     sessionId: {
         type: String,
@@ -236,6 +253,10 @@ const conversationSchema = new mongoose.Schema({
         type: interventionMetricsSchema,
         default: () => ({}),
     },
+    dependencyEvents: {
+        type: [dependencyEventSchema],
+        default: [],
+    },
     problemContext: {
         type: problemContextSchema,
         default: () => ({}),
@@ -244,6 +265,7 @@ const conversationSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 conversationSchema.index({ user: 1, sessionId: 1 }, { unique: true });
+conversationSchema.index({ 'dependencyEvents.at': -1 });
 
 const Conversation = mongoose.model('Conversation', conversationSchema);
 

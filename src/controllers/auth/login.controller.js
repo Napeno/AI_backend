@@ -33,6 +33,7 @@ const login = async (req, res) => {
         id: user._id, 
         name: user.name, 
         username: user.username,
+        role: user.role || 'student',
         coins: user.coins || 0,
         points: user.points || 0,
         rank: user.rank || 'iron',

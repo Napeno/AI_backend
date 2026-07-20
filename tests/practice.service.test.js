@@ -1,6 +1,13 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { applyPracticeResult, getFallbackPractice } = require('../src/services/practice.service');
+const {
+  applyPracticeResult,
+  buildPracticePrompt,
+  canShowPracticeSolution,
+  getFallbackPractice,
+  getPracticeSourceQuestion,
+} = require('../src/services/practice.service');
+const { parsePagination } = require('../src/controllers/practice.controller');
 
 test('schedules successful practice reviews at 1, 3, then 7 days and marks mastery', () => {
   const item = { reviewCount: 0 };
@@ -39,4 +46,42 @@ test('provides a non-quiz fallback prompt for each saved blocker', () => {
 
   assert.match(practice.prompt, /việc đầu tiên/);
   assert.match(practice.hint, /dữ kiện/);
+});
+
+test('uses the selected conversation question as the practice source', () => {
+  const source = getPracticeSourceQuestion({
+    history: [{ role: 'user', parts: [{ text: 'Đề dài cũ' }] }],
+    problemContext: {
+      activeQuestionId: 'b',
+      questions: [
+        { id: 'a', prompt: 'Câu a' },
+        { id: 'b', prompt: 'Câu b', sourceExpression: 'x + 4' },
+      ],
+    },
+  });
+
+  assert.equal(source, 'Câu b\nx + 4');
+});
+
+test('requires two meaningful incorrect attempts before showing a sample solution', () => {
+  assert.equal(canShowPracticeSolution({ practice: { incorrectAttempts: 1 } }), false);
+  assert.equal(canShowPracticeSolution({ practice: { incorrectAttempts: 2 } }), true);
+});
+
+test('asks Gemini for a new similar task rather than the original question', () => {
+  const prompt = buildPracticePrompt({
+    sourceQuestion: 'Tính 12 + 5',
+    blocker: 'calculation',
+    sourceFeedback: '',
+  }, 'vi');
+
+  assert.match(prompt, /bài MỚI/);
+  assert.match(prompt, /không sao chép/);
+  assert.match(prompt, /không tiết lộ đáp án bài gốc/);
+});
+
+test('uses safe pagination defaults and limits', () => {
+  assert.equal(parsePagination('bad', 6, 24), 6);
+  assert.equal(parsePagination('30', 6, 24), 24);
+  assert.equal(parsePagination('2', 6, 24), 2);
 });

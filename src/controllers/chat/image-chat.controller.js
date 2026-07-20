@@ -5,9 +5,11 @@ const InterventionService = require('../../services/intervention.service');
 const { setImageProblemContext, toPublicProblemContext } = require('../../services/problem-context.service');
 const { getMessages, checkIfInternalPrompt } = require('./utils');
 
+const shouldUpdateProblemContext = (imagePurpose) => imagePurpose !== 'student_work';
+
 const handleImageChat = async (req, res) => {
   try {
-    const { message, sessionId, language = 'en', educationLevel, subjectArea } = req.body;
+    const { message, sessionId, language = 'en', educationLevel, subjectArea, imagePurpose } = req.body;
     const imageFile = req.file;
     
     console.log('handleImageChat called with:', { 
@@ -25,12 +27,12 @@ const handleImageChat = async (req, res) => {
       });
     }
 
-    // If no message is provided and image exists, set default question
+    // If no message is provided and image exists, set a purpose-aware default.
     let finalMessage = message;
     if (!message && imageFile) {
-      finalMessage = language === 'vi' 
-        ? 'Trả lời đáp án bên trong hình ảnh' 
-        : 'Answer the question shown in the image';
+      finalMessage = imagePurpose === 'student_work'
+        ? (language === 'vi' ? 'Đây là bước làm của em, hãy giúp em kiểm tra lỗi.' : 'This is my working step. Please help me check for mistakes.')
+        : (language === 'vi' ? 'Trả lời đáp án bên trong hình ảnh' : 'Answer the question shown in the image');
     }
 
     if (!finalMessage && !imageFile) {
@@ -96,7 +98,7 @@ const handleImageChat = async (req, res) => {
       }
 
       conversation.history.push(userMessage);
-      if (imageData) {
+      if (imageData && shouldUpdateProblemContext(imagePurpose)) {
         await setImageProblemContext(conversation, { sourceText: finalMessage, image: imageData, language });
       }
       console.log('Added user message with image to history');
@@ -154,4 +156,4 @@ const handleImageChat = async (req, res) => {
   }
 };
 
-module.exports = { handleImageChat };
+module.exports = { handleImageChat, shouldUpdateProblemContext };

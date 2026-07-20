@@ -2,17 +2,37 @@ const { makeRequestWithRetry, startChat, extractResponseText } = require('./gemi
 const PracticeItem = require('../models/practice-item.model');
 
 const REVIEW_DAYS = [1, 3, 7];
+const MAX_TURNS_IN_PROMPT = 6;
 
 const getLastUserQuestion = (history = []) => {
   const message = [...history].reverse().find(entry => entry.role === 'user' && entry.parts?.[0]?.text);
   return String(message?.parts?.[0]?.text || '').trim().slice(0, 1200);
 };
 
-const capturePracticeItem = async ({ userId, conversation, blocker, feedback = '' }) => {
-  const sourceQuestion = getLastUserQuestion(conversation.history);
-  if (!sourceQuestion) {
-    return null;
-  }
+const getPracticeSourceQuestion = (conversation = {}) => {
+  const context = conversation.problemContext || {};
+  const questionId = context.activeQuestionId || context.suggestedQuestionId;
+  const question = (context.questions || []).find(entry => entry.id === questionId);
+  const selectedQuestion = [question?.prompt, question?.sourceExpression]
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+
+  return (selectedQuestion || getLastUserQuestion(conversation.history)).slice(0, 1200);
+};
+
+const schedulePracticeGeneration = (item, language) => {
+  // ponytail: best-effort in-process generation; opening the item retries after a restart.
+  setImmediate(() => {
+    ensurePractice(item, language).catch(error => {
+      console.error('Error generating saved practice item:', error.message);
+    });
+  });
+};
+
+const capturePracticeItem = async ({ userId, conversation, blocker, feedback = '', language = 'en' }) => {
+  const sourceQuestion = getPracticeSourceQuestion(conversation);
+  if (!sourceQuestion) return null;
 
   const item = await PracticeItem.findOneAndUpdate(
     { user: userId, sessionId: conversation.sessionId, sourceQuestion, blocker },
@@ -29,6 +49,7 @@ const capturePracticeItem = async ({ userId, conversation, blocker, feedback = '
     { new: true, upsert: true, setDefaultsOnInsert: true }
   );
 
+  if (!item.practice?.prompt) schedulePracticeGeneration(item, language);
   return item;
 };
 
@@ -63,26 +84,25 @@ const getFallbackPractice = (item, language = 'en') => {
 const buildPracticePrompt = (item, language = 'en') => {
   const languageInstruction = language === 'vi' ? 'Trả lời bằng tiếng Việt.' : 'Respond in English.';
   return `${languageInstruction}
-Tạo một nhiệm vụ ôn tập ngắn, trả lời tự do, mất không quá 2 phút. Không dùng trắc nghiệm, không đưa đáp án bài gốc.
+Tạo một bài ôn trả lời tự do, mất không quá 2 phút, cùng đúng kỹ năng cần luyện nhưng là bài MỚI.
+Đổi dữ kiện, số liệu, bối cảnh hoặc cách diễn đạt để không sao chép câu hay đáp án của bài gốc. Không dùng lại nguyên câu dài từ bài gốc, không hỏi lại bài gốc và không tiết lộ đáp án bài gốc. Không dùng trắc nghiệm.
 
-Bài gốc: ${item.sourceQuestion}
+Bài gốc chỉ để nhận biết kỹ năng: ${item.sourceQuestion}
 Điểm học sinh từng kẹt: ${item.blocker}
 Phản hồi trước đó: ${item.sourceFeedback || 'Không có'}
 
 Trả JSON hợp lệ: {"prompt":"...","hint":"...","answerGuide":"..."}.
-prompt yêu cầu đúng một bước nhỏ; hint gợi mở nhưng không giải hộ; answerGuide chỉ để hệ thống chấm.`;
+prompt là bài mới và yêu cầu đúng một bước nhỏ; hint gợi mở nhưng không giải hộ; answerGuide chỉ để hệ thống chấm. Nếu có công thức toán, luôn đặt biểu thức trong \\(...\\) để giao diện hiển thị đúng.`;
 };
 
 const ensurePractice = async (item, language = 'en') => {
-  if (item.practice?.prompt) {
-    return item.practice;
-  }
+  if (item.practice?.prompt) return item.practice;
 
   let practice = getFallbackPractice(item, language);
   try {
     const chat = startChat([], language === 'vi'
-      ? 'Bạn tạo bài ôn tập ngắn, tích cực và không tiết lộ đáp án bài gốc. Chỉ trả JSON hợp lệ.'
-      : 'You create short, encouraging practice tasks without revealing the original answer. Return valid JSON only.');
+      ? 'Bạn tạo bài ôn mới, tích cực, cùng kỹ năng nhưng không sao chép hoặc tiết lộ đáp án bài gốc. Chỉ trả JSON hợp lệ.'
+      : 'Create a new, encouraging practice task with the same skill without copying or revealing the original answer. Return valid JSON only.');
     const result = await makeRequestWithRetry(async () => chat.sendMessage(buildPracticePrompt(item, language)));
     const parsed = parseJson(extractResponseText(result));
     if (String(parsed?.prompt || '').trim() && String(parsed?.hint || '').trim()) {
@@ -96,38 +116,103 @@ const ensurePractice = async (item, language = 'en') => {
     console.error('Error generating practice item:', error);
   }
 
-  item.practice = practice;
+  item.practice = {
+    ...practice,
+    turns: item.practice?.turns || [],
+    incorrectAttempts: item.practice?.incorrectAttempts || 0,
+  };
   await item.save();
-  return practice;
+  return item.practice;
 };
 
-const evaluatePracticeAttempt = async (item, answer, language = 'en') => {
-  const fallback = language === 'vi'
-    ? { isCorrect: true, feedback: 'ThinkBridge đã ghi nhận bước em thử làm. Lần sau mình sẽ cùng kiểm tra kỹ hơn nhé.' }
-    : { isCorrect: true, feedback: 'ThinkBridge recorded the step you tried. We will check it more closely next time.' };
+const formatRecentTurns = (item) => (item.practice?.turns || [])
+  .slice(-MAX_TURNS_IN_PROMPT)
+  .map(turn => `${turn.role}: ${turn.content}${turn.hint ? `\nGợi ý: ${turn.hint}` : ''}`.slice(0, 600))
+  .join('\n');
+
+const getFallbackGuidance = (action, language) => {
+  const vi = language === 'vi';
+  if (action === 'hint') {
+    return {
+      feedback: vi ? 'Hãy nhìn lại mục tiêu của bài rồi chọn đúng một dữ kiện hoặc công thức liên quan.' : 'Look back at the goal, then choose one relevant fact or formula.',
+      hint: vi ? 'Đừng làm cả bài cùng lúc; chỉ viết bước tiếp theo nhỏ nhất.' : 'Do not do the whole task at once; write only the smallest next step.',
+      nextQuestion: vi ? 'Em sẽ thử bước nào trước?' : 'Which step will you try first?',
+    };
+  }
+  if (action === 'solution') {
+    return {
+      feedback: vi ? 'Mình chưa thể tạo lời giải mẫu lúc này. Em thử đọc lại gợi ý rồi gửi một bước làm nhé.' : 'I cannot create the sample solution right now. Read the hint and send one working step.',
+      hint: '',
+      nextQuestion: '',
+    };
+  }
+  return {
+    isCorrect: null,
+    isMeaningfulAttempt: false,
+    feedback: vi ? 'Mình chưa chấm chắc được bước này. Em hãy viết rõ một phép tính, công thức hoặc lý do em chọn bước đó.' : 'I cannot grade this step reliably yet. Write one clear calculation, formula, or reason for your choice.',
+    hint: vi ? 'Chỉ cần gửi một bước nhỏ, không cần làm hết bài.' : 'Send just one small step; you do not need to finish the whole task.',
+    nextQuestion: vi ? 'Bước đầu tiên em chắc nhất là gì?' : 'What is the first step you are most sure about?',
+  };
+};
+
+const requestPracticeGuidance = async (item, action, answer = '', language = 'en') => {
+  const fallback = getFallbackGuidance(action, language);
+  const actionInstruction = action === 'hint'
+    ? 'Đưa đúng một gợi ý mới, tăng dần nhưng không giải hộ.'
+    : action === 'solution'
+      ? 'Giải thích ngắn gọn lời giải mẫu CHỈ cho bài ôn mới này. Không nhắc lại hay giải bài gốc.'
+      : 'Đánh giá bước làm. Nếu sai, chỉ rõ đúng một điểm cần sửa; nếu đúng, xác nhận điều đã làm đúng. Luôn đưa một gợi ý và một câu hỏi dẫn dắt tiếp theo, không giải trọn bài.';
+  const prompt = `${language === 'vi' ? 'Chỉ trả JSON hợp lệ bằng tiếng Việt.' : 'Return valid JSON only in English.'}
+Bạn là gia sư ôn tập theo kiểu dẫn dắt. ${actionInstruction}
+Bài ôn mới: ${item.practice?.prompt}
+Gợi ý chấm nội bộ: ${item.practice?.answerGuide || 'Đánh giá bước làm có hợp lý với bài ôn hay không.'}
+Lịch sử gần đây:
+${formatRecentTurns(item) || '(chưa có)'}
+${action === 'attempt' ? `Bước học sinh vừa gửi: ${answer}` : ''}
+
+Schema: {"isCorrect":true|false|null,"isMeaningfulAttempt":true|false,"feedback":"...","hint":"...","nextQuestion":"..."}.
+Với hint hoặc solution, isCorrect là null. feedback phải ngắn gọn, cụ thể và khích lệ. Nếu có công thức toán, luôn đặt biểu thức trong \\(...\\) để giao diện hiển thị đúng.`;
 
   try {
     const chat = startChat([], language === 'vi'
-      ? 'Bạn chấm một bước học tập ngắn một cách khích lệ. Chỉ trả JSON hợp lệ.'
-      : 'You assess a short learning step encouragingly. Return valid JSON only.');
-    const prompt = `${language === 'vi' ? 'Chỉ trả JSON.' : 'Return JSON only.'}
-Bài gốc: ${item.sourceQuestion}
-Nhiệm vụ: ${item.practice.prompt}
-Gợi ý chấm: ${item.practice.answerGuide || 'Đánh giá xem học sinh có làm đúng một bước hợp lý hay không.'}
-Học sinh trả lời: ${answer}
+      ? 'Bạn là gia sư gợi mở. Chỉ trả JSON hợp lệ.'
+      : 'You are a guided tutor. Return valid JSON only.');
+    const parsed = parseJson(extractResponseText(await makeRequestWithRetry(() => chat.sendMessage(prompt))));
+    if (!String(parsed?.feedback || '').trim()) return fallback;
 
-Schema: {"isCorrect":true,"feedback":"..."}
-isCorrect chỉ true khi học sinh đã thể hiện một bước hợp lý. feedback ngắn, tích cực, không đưa đáp án hoàn chỉnh.`;
-    const result = await makeRequestWithRetry(async () => chat.sendMessage(prompt));
-    const parsed = parseJson(extractResponseText(result));
-    if (typeof parsed?.isCorrect === 'boolean' && String(parsed?.feedback || '').trim()) {
-      return { isCorrect: parsed.isCorrect, feedback: String(parsed.feedback).trim() };
-    }
+    return {
+      isCorrect: action === 'attempt' && typeof parsed.isCorrect === 'boolean' ? parsed.isCorrect : null,
+      isMeaningfulAttempt: action === 'attempt' && parsed.isMeaningfulAttempt === true,
+      feedback: String(parsed.feedback).trim().slice(0, 2000),
+      hint: String(parsed.hint || '').trim().slice(0, 1200),
+      nextQuestion: String(parsed.nextQuestion || '').trim().slice(0, 1200),
+    };
   } catch (error) {
-    console.error('Error evaluating practice attempt:', error);
+    console.error('Error guiding practice interaction:', error);
+    return fallback;
   }
+};
 
-  return fallback;
+const evaluatePracticeAttempt = (item, answer, language = 'en') => requestPracticeGuidance(item, 'attempt', answer, language);
+
+const canShowPracticeSolution = (item) => Number(item.practice?.incorrectAttempts || 0) >= 2;
+
+const addPracticeTurn = (item, turn) => {
+  if (!item.practice) item.practice = {};
+  if (!item.practice.turns) item.practice.turns = [];
+  item.practice.turns.push({ ...turn, createdAt: new Date() });
+};
+
+const addAssistantTurn = (item, action, result) => {
+  addPracticeTurn(item, {
+    role: 'assistant',
+    action,
+    content: result.feedback,
+    hint: result.hint,
+    nextQuestion: result.nextQuestion,
+    isCorrect: result.isCorrect,
+    isMeaningfulAttempt: result.isMeaningfulAttempt,
+  });
 };
 
 const applyPracticeResult = (item, isCorrect, now = new Date()) => {
@@ -154,7 +239,13 @@ const toPublicPracticeItem = (item) => ({
   sourceQuestion: item.sourceQuestion,
   blocker: item.blocker,
   sourceFeedback: item.sourceFeedback,
-  practice: item.practice?.prompt ? { prompt: item.practice.prompt, hint: item.practice.hint } : null,
+  practice: item.practice?.prompt ? {
+    prompt: item.practice.prompt,
+    hint: item.practice.hint,
+    turns: item.practice.turns || [],
+    incorrectAttempts: item.practice.incorrectAttempts || 0,
+  } : null,
+  canShowSolution: canShowPracticeSolution(item),
   status: item.status,
   reviewCount: item.reviewCount,
   nextReviewAt: item.nextReviewAt,
@@ -163,10 +254,16 @@ const toPublicPracticeItem = (item) => ({
 });
 
 module.exports = {
+  addAssistantTurn,
+  addPracticeTurn,
   applyPracticeResult,
+  buildPracticePrompt,
+  canShowPracticeSolution,
   capturePracticeItem,
   ensurePractice,
   evaluatePracticeAttempt,
   getFallbackPractice,
+  getPracticeSourceQuestion,
+  requestPracticeGuidance,
   toPublicPracticeItem,
 };
