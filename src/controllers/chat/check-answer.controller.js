@@ -21,6 +21,11 @@ const parseCheckAnswerResponse = (modelResponse) => {
   };
 };
 
+const recordAnswerEvaluation = (conversation, evaluation, isCorrect) => {
+  InterventionService.recordStudentAttempt(conversation, evaluation.isMeaningfulAttempt);
+  InterventionService.recordAnswerCheck(conversation, isCorrect, evaluation.isMeaningfulAttempt);
+};
+
 const checkAnswer = async (req, res, imageData = null) => {
   const { sessionId, userAnswer, language = 'en', imageUrl } = req.body;
   const answerImageUrl = imageData?.url || imageUrl || null;
@@ -68,16 +73,10 @@ const checkAnswer = async (req, res, imageData = null) => {
     responseText ||= getMessages(language).messages.success;
   } else if (isCorrect === false) {
     responseText ||= getMessages(language).messages.tryAgain;
-    InterventionService.recordStudentAttempt(conversation, evaluation.isMeaningfulAttempt);
-    InterventionService.recordAnswerCheck(conversation, false, evaluation.isMeaningfulAttempt);
-    responseText += InterventionService.getFoundationSupportMessage(conversation, language);
-  } else if (isCorrect === true) {
-    InterventionService.recordStudentAttempt(conversation, evaluation.isMeaningfulAttempt);
-    InterventionService.recordAnswerCheck(conversation, true, evaluation.isMeaningfulAttempt);
-  } else {
-    InterventionService.recordStudentAttempt(conversation, evaluation.isMeaningfulAttempt);
-    InterventionService.recordAnswerCheck(conversation, null, evaluation.isMeaningfulAttempt);
   }
+
+  recordAnswerEvaluation(conversation, evaluation, isCorrect);
+  if (isCorrect === false) responseText += InterventionService.getFoundationSupportMessage(conversation, language);
 
   conversation.history.push({
     role: 'model',
@@ -138,4 +137,4 @@ const checkUserAnswerWithImage = async (req, res) => {
   }
 };
 
-module.exports = { checkUserAnswer, checkUserAnswerWithImage, parseCheckAnswerResponse };
+module.exports = { checkUserAnswer, checkUserAnswerWithImage, parseCheckAnswerResponse, recordAnswerEvaluation };

@@ -57,7 +57,9 @@ const parseJson = (text) => {
   const cleaned = String(text || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
   const firstBrace = cleaned.indexOf('{');
   const lastBrace = cleaned.lastIndexOf('}');
-  return JSON.parse(firstBrace === -1 ? cleaned : cleaned.slice(firstBrace, lastBrace + 1));
+  const json = firstBrace === -1 ? cleaned : cleaned.slice(firstBrace, lastBrace + 1);
+  // Gemini may return LaTex such as \(x^2\) with raw backslashes, which JSON rejects.
+  return JSON.parse(json.replace(/\\(?!["\\/bfnrtu])/g, '\\\\'));
 };
 
 const getFallbackPractice = (item, language = 'en') => {
@@ -130,38 +132,12 @@ const formatRecentTurns = (item) => (item.practice?.turns || [])
   .map(turn => `${turn.role}: ${turn.content}${turn.hint ? `\nGợi ý: ${turn.hint}` : ''}`.slice(0, 600))
   .join('\n');
 
-const getFallbackGuidance = (action, language) => {
-  const vi = language === 'vi';
-  if (action === 'hint') {
-    return {
-      feedback: vi ? 'Hãy nhìn lại mục tiêu của bài rồi chọn đúng một dữ kiện hoặc công thức liên quan.' : 'Look back at the goal, then choose one relevant fact or formula.',
-      hint: vi ? 'Đừng làm cả bài cùng lúc; chỉ viết bước tiếp theo nhỏ nhất.' : 'Do not do the whole task at once; write only the smallest next step.',
-      nextQuestion: vi ? 'Em sẽ thử bước nào trước?' : 'Which step will you try first?',
-    };
-  }
-  if (action === 'solution') {
-    return {
-      feedback: vi ? 'Mình chưa thể tạo lời giải mẫu lúc này. Em thử đọc lại gợi ý rồi gửi một bước làm nhé.' : 'I cannot create the sample solution right now. Read the hint and send one working step.',
-      hint: '',
-      nextQuestion: '',
-    };
-  }
-  return {
-    isCorrect: null,
-    isMeaningfulAttempt: false,
-    feedback: vi ? 'Mình chưa chấm chắc được bước này. Em hãy viết rõ một phép tính, công thức hoặc lý do em chọn bước đó.' : 'I cannot grade this step reliably yet. Write one clear calculation, formula, or reason for your choice.',
-    hint: vi ? 'Chỉ cần gửi một bước nhỏ, không cần làm hết bài.' : 'Send just one small step; you do not need to finish the whole task.',
-    nextQuestion: vi ? 'Bước đầu tiên em chắc nhất là gì?' : 'What is the first step you are most sure about?',
-  };
-};
-
 const requestPracticeGuidance = async (item, action, answer = '', language = 'en') => {
-  const fallback = getFallbackGuidance(action, language);
   const actionInstruction = action === 'hint'
     ? 'Đưa đúng một gợi ý mới, tăng dần nhưng không giải hộ.'
     : action === 'solution'
       ? 'Giải thích ngắn gọn lời giải mẫu CHỈ cho bài ôn mới này. Không nhắc lại hay giải bài gốc.'
-      : 'Đánh giá bước làm. Nếu sai, chỉ rõ đúng một điểm cần sửa; nếu đúng, xác nhận điều đã làm đúng. Luôn đưa một gợi ý và một câu hỏi dẫn dắt tiếp theo, không giải trọn bài.';
+      : 'Đọc kỹ bước làm học sinh vừa gửi và đánh giá theo đúng bài ôn. Nếu sai, chỉ rõ đúng một điểm cần sửa; nếu đúng, xác nhận chính xác điều đã làm đúng. Câu hỏi tiếp theo phải dựa trên câu trả lời này, không dùng mẫu chung. Không giải trọn bài.';
   const prompt = `${language === 'vi' ? 'Chỉ trả JSON hợp lệ bằng tiếng Việt.' : 'Return valid JSON only in English.'}
 Bạn là gia sư ôn tập theo kiểu dẫn dắt. ${actionInstruction}
 Bài ôn mới: ${item.practice?.prompt}
@@ -171,14 +147,16 @@ ${formatRecentTurns(item) || '(chưa có)'}
 ${action === 'attempt' ? `Bước học sinh vừa gửi: ${answer}` : ''}
 
 Schema: {"isCorrect":true|false|null,"isMeaningfulAttempt":true|false,"feedback":"...","hint":"...","nextQuestion":"..."}.
-Với hint hoặc solution, isCorrect là null. feedback phải ngắn gọn, cụ thể và khích lệ. Nếu có công thức toán, luôn đặt biểu thức trong \\(...\\) để giao diện hiển thị đúng.`;
+Với hint hoặc solution, isCorrect là null. Với attempt, feedback phải nhắc đến bước hoặc phép tính học sinh vừa gửi; nextQuestion là bắt buộc và chỉ yêu cầu đúng một bước tiếp theo phù hợp với phản hồi đó. Không dùng các câu mẫu như “hãy viết một công thức” nếu không giải thích được công thức nào liên quan. Nếu có công thức toán, luôn đặt biểu thức trong \\(...\\) để giao diện hiển thị đúng.`;
 
   try {
     const chat = startChat([], language === 'vi'
       ? 'Bạn là gia sư gợi mở. Chỉ trả JSON hợp lệ.'
       : 'You are a guided tutor. Return valid JSON only.');
     const parsed = parseJson(extractResponseText(await makeRequestWithRetry(() => chat.sendMessage(prompt))));
-    if (!String(parsed?.feedback || '').trim()) return fallback;
+    if (!String(parsed?.feedback || '').trim() || (action === 'attempt' && !String(parsed?.nextQuestion || '').trim())) {
+      return null;
+    }
 
     return {
       isCorrect: action === 'attempt' && typeof parsed.isCorrect === 'boolean' ? parsed.isCorrect : null,
@@ -189,7 +167,7 @@ Với hint hoặc solution, isCorrect là null. feedback phải ngắn gọn, c�
     };
   } catch (error) {
     console.error('Error guiding practice interaction:', error);
-    return fallback;
+    return null;
   }
 };
 
@@ -264,6 +242,7 @@ module.exports = {
   evaluatePracticeAttempt,
   getFallbackPractice,
   getPracticeSourceQuestion,
+  parseJson,
   requestPracticeGuidance,
   toPublicPracticeItem,
 };

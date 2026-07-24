@@ -1,7 +1,7 @@
 const enMessages = require('../locales/en.json');
 const viMessages = require('../locales/vi.json');
 
-const RAPID_HINT_THRESHOLD_MS = 10 * 1000;
+const RAPID_HINT_THRESHOLD_MS = 3 * 1000;
 const MAX_EXTRA_HINTS = 4;
 const BASELINE_RISK_SCORE = 78;
 const GATE_RESPONSE_TYPES = ['attempt', 'blocker_choice', 'quiz_choice', 'reflection'];

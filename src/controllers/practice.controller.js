@@ -106,13 +106,20 @@ const submitAttempt = async (req, res) => {
     const language = req.body?.language || 'en';
     let result;
     if (action === 'attempt') {
-      addPracticeTurn(item, { role: 'student', action, content: answer });
       result = await evaluatePracticeAttempt(item, answer, language);
+      if (!result) {
+        return res.status(503).json({ message: language === 'vi' ? 'ThinkBridge chưa thể chấm bài lúc này. Em thử gửi lại sau ít phút nhé.' : 'ThinkBridge cannot grade this attempt right now. Please try again shortly.' });
+      }
+      addPracticeTurn(item, { role: 'student', action, content: answer });
       if (result.isCorrect === false && result.isMeaningfulAttempt) {
         item.practice.incorrectAttempts = Number(item.practice.incorrectAttempts || 0) + 1;
       }
       if (typeof result.isCorrect === 'boolean') applyPracticeResult(item, result.isCorrect);
     } else {
+      result = await requestPracticeGuidance(item, action, '', language);
+      if (!result) {
+        return res.status(503).json({ message: language === 'vi' ? 'ThinkBridge chưa thể tạo phản hồi lúc này. Em thử lại sau ít phút nhé.' : 'ThinkBridge cannot create a response right now. Please try again shortly.' });
+      }
       addPracticeTurn(item, {
         role: 'student',
         action,
@@ -120,7 +127,6 @@ const submitAttempt = async (req, res) => {
           ? (language === 'vi' ? 'Em muốn thêm một gợi ý.' : 'I would like another hint.')
           : (language === 'vi' ? 'Em muốn xem lời giải mẫu.' : 'I would like to see the sample solution.'),
       });
-      result = await requestPracticeGuidance(item, action, '', language);
     }
     addAssistantTurn(item, action, result);
     await item.save();

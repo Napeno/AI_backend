@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const InterventionService = require('../src/services/intervention.service');
-const { parseCheckAnswerResponse } = require('../src/controllers/chat/check-answer.controller');
+const { parseCheckAnswerResponse, recordAnswerEvaluation } = require('../src/controllers/chat/check-answer.controller');
 const { getErrorDetails } = require('../src/controllers/chat/continue-chat.controller');
 const { shouldUpdateProblemContext } = require('../src/controllers/chat/image-chat.controller');
 const { buildCheckAnswerPrompt, normalizeMathAnswer } = require('../src/services/prompt.service');
@@ -35,12 +35,45 @@ test('starts high, penalizes dependent use, and rewards verified learning progre
   assert.equal(InterventionService.calculateRiskScore({ meaningfulAttempts: 1, correctAnswers: 1, hasRevisedAfterFeedback: true }), 30);
 });
 
+test('records a correct answer as learning progress for dependency risk', () => {
+  const conversation = createConversation();
+
+  recordAnswerEvaluation(conversation, { isMeaningfulAttempt: true }, true);
+
+  assert.equal(conversation.interventionMetrics.meaningfulAttempts, 1);
+  assert.equal(conversation.interventionMetrics.correctAnswers, 1);
+  assert.equal(conversation.interventionMetrics.lastRiskScore, 42);
+  assert.deepEqual(conversation.dependencyEvents[0].details, { isCorrect: true, isMeaningfulAttempt: true });
+});
+
 test('does not gate the first hint solely because the baseline is high', () => {
   const conversation = createConversation();
   const result = InterventionService.evaluateHintRequest(conversation, 'vi');
 
   assert.equal(result.allowed, true);
   assert.equal(conversation.interventionMetrics.lastRiskScore, 91);
+});
+
+test('marks only hints less than three seconds apart as rapid', () => {
+  const quickConversation = createConversation();
+  quickConversation.interventionMetrics = {
+    hasAttemptedAnswer: true,
+    answerAttempts: 1,
+    lastHintAt: new Date(Date.now() - 2_000),
+  };
+
+  InterventionService.evaluateHintRequest(quickConversation, 'vi');
+  assert.equal(quickConversation.dependencyEvents[0].details.isRapid, true);
+
+  const normalConversation = createConversation();
+  normalConversation.interventionMetrics = {
+    hasAttemptedAnswer: true,
+    answerAttempts: 1,
+    lastHintAt: new Date(Date.now() - 4_000),
+  };
+
+  InterventionService.evaluateHintRequest(normalConversation, 'vi');
+  assert.equal(normalConversation.dependencyEvents[0].details.isRapid, false);
 });
 
 test('guides repeated hint requests from blocker choice to a mini quiz', () => {

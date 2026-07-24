@@ -6,6 +6,7 @@ const {
   canShowPracticeSolution,
   getFallbackPractice,
   getPracticeSourceQuestion,
+  parseJson,
 } = require('../src/services/practice.service');
 const { parsePagination } = require('../src/controllers/practice.controller');
 
@@ -78,6 +79,14 @@ test('asks Gemini for a new similar task rather than the original question', () 
   assert.match(prompt, /bài MỚI/);
   assert.match(prompt, /không sao chép/);
   assert.match(prompt, /không tiết lộ đáp án bài gốc/);
+});
+
+test('accepts Gemini JSON containing raw LaTex backslashes', () => {
+  const rawJson = `{"feedback":"Ta có ${'\\'}(x+1${'\\'})^2","nextQuestion":"Thử khai triển biểu thức."}`;
+  const parsed = parseJson(rawJson);
+
+  assert.equal(parsed.feedback, 'Ta có \\(x+1\\)^2');
+  assert.equal(parsed.nextQuestion, 'Thử khai triển biểu thức.');
 });
 
 test('uses safe pagination defaults and limits', () => {
