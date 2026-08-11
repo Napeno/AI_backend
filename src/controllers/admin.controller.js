@@ -8,7 +8,7 @@ const getFilters = (query) => ({
   to: query.to,
   educationLevel: allowed(query.educationLevel, ['elementary', 'middle', 'high']),
   subjectArea: allowed(query.subjectArea, ['natural_sciences', 'social_sciences', 'mathematics', 'english_language']),
-  riskLevel: allowed(query.riskLevel, ['green', 'yellow', 'red']),
+  riskLevel: allowed(query.riskLevel, ['low', 'watch', 'high']),
   search: query.search,
   metric: allowed(query.metric, ['risk', 'hints', 'fullAnswers', 'attemptRate', 'correctRate']) || 'risk',
   groupBy: allowed(query.groupBy, ['day', 'week', 'month', 'subject', 'riskLevel']) || 'day',

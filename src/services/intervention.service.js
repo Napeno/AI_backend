@@ -1,10 +1,11 @@
 const enMessages = require('../locales/en.json');
 const viMessages = require('../locales/vi.json');
+const RULES = require('../config/intervention-rules.json');
 
-const RAPID_HINT_THRESHOLD_MS = 3 * 1000;
-const MAX_EXTRA_HINTS = 4;
-const BASELINE_RISK_SCORE = 78;
-const GATE_RESPONSE_TYPES = ['attempt', 'blocker_choice', 'quiz_choice', 'reflection'];
+const RAPID_HINT_THRESHOLD_MS = RULES.limits.rapidHelpMs;
+const MAX_EXTRA_HINTS = RULES.limits.maxHints;
+const BASELINE_RISK_SCORE = 0;
+const GATE_RESPONSE_TYPES = ['attempt', 'blocker_choice', 'quiz_choice', 'reflection', 'alternate_view'];
 const BLOCKER_IDS = ['understand_question', 'formula', 'start', 'calculation'];
 const SUPPORT_OPTION_IDS = ['understand_question', 'theory', 'start', 'calculation', 'creative'];
 
@@ -69,7 +70,19 @@ const ensureMetrics = (conversation) => {
     conversation.interventionMetrics = {};
   }
 
-  const metrics = conversation.interventionMetrics;
+  let metrics = conversation.interventionMetrics;
+  if (metrics.rulesetVersion !== RULES.version) {
+    // Legacy scores used a different baseline and cannot be converted faithfully.
+    Object.assign(metrics, {
+      rulesetVersion: RULES.version, riskScore: 0, riskLevel: 'low', lastRiskScore: 0, lastRiskLevel: 'low',
+      hintRequests: 0, rapidHintRequests: 0, answerAttempts: 0, meaningfulAttempts: 0, answerChecks: 0,
+      correctAnswers: 0, incorrectAnswers: 0, fullAnswerRequests: 0, gateCompletions: 0,
+      hasAttemptedAnswer: false, hasMeaningfulAttempt: false, hasCheckedAnswer: false,
+      hasRevisedAfterFeedback: false, identifiedBlocker: false, hasWorkSinceFourthHint: false,
+      hasMeaningfulWorkSinceLastHint: false, hintWithoutWorkCount: 0,
+      lastHintAt: null, lastHelpAt: null, activeGate: { active: false },
+    });
+  }
   metrics.hintRequests ??= 0;
   metrics.rapidHintRequests ??= 0;
   metrics.answerAttempts ??= 0;
@@ -84,8 +97,14 @@ const ensureMetrics = (conversation) => {
   metrics.hasCheckedAnswer ??= false;
   metrics.hasRevisedAfterFeedback ??= false;
   metrics.identifiedBlocker ??= false;
-  metrics.lastRiskScore ??= BASELINE_RISK_SCORE;
-  metrics.lastRiskLevel ??= 'red';
+  metrics.hasWorkSinceFourthHint ??= false;
+  metrics.hasMeaningfulWorkSinceLastHint ??= false;
+  metrics.hintWithoutWorkCount ??= 0;
+  metrics.lastEventRiskScore ??= 0;
+  metrics.riskScore ??= BASELINE_RISK_SCORE;
+  metrics.riskLevel ??= 'low';
+  metrics.lastRiskScore ??= metrics.riskScore;
+  metrics.lastRiskLevel ??= metrics.riskLevel;
   metrics.activeGate ??= { active: false };
   metrics.activeGate.active ??= false;
 
@@ -108,6 +127,7 @@ const toPlainMetrics = (metrics) => ({
   hasCheckedAnswer: !!metrics.hasCheckedAnswer,
   hasRevisedAfterFeedback: !!metrics.hasRevisedAfterFeedback,
   identifiedBlocker: !!metrics.identifiedBlocker,
+  hintWithoutWorkCount: metrics.hintWithoutWorkCount ?? ((metrics.hintRequests && !metrics.meaningfulAttempts) ? 1 : 0),
 });
 
 const getProgress = (metrics) => ({
@@ -119,32 +139,32 @@ const getProgress = (metrics) => ({
 const getFullAnswerRequirements = (metrics) => ({
   hintsUsed: Math.min(metrics.hintRequests || 0, MAX_EXTRA_HINTS),
   hintsRequired: MAX_EXTRA_HINTS,
-  hasMeaningfulAttempt: !!metrics.hasMeaningfulAttempt,
+  hasMeaningfulAttempt: !!metrics.hasMeaningfulAttempt || !!metrics.hasWorkSinceFourthHint,
 });
 
 const calculateRiskScore = (rawMetrics = {}) => {
   const metrics = toPlainMetrics(rawMetrics);
   let score = BASELINE_RISK_SCORE;
 
-  score += 5 * Math.min(metrics.hintRequests, 3);
-  score += 8 * Math.max(metrics.hintRequests - 3, 0);
-  score += 12 * Math.min(metrics.rapidHintRequests, 2);
-  score += 16 * Math.min(metrics.fullAnswerRequests, 2);
-  if (metrics.hintRequests > 0 && metrics.meaningfulAttempts === 0) score += 8;
+  score += RULES.risk.hintFirstThree * Math.min(metrics.hintRequests, 3);
+  score += RULES.risk.hintAfterThree * Math.max(metrics.hintRequests - 3, 0);
+  score += RULES.risk.rapidHint * Math.min(metrics.rapidHintRequests, RULES.limits.rapidHints);
+  score += RULES.risk.fullAnswer * Math.min(metrics.fullAnswerRequests, RULES.limits.fullAnswers);
+  score += RULES.risk.hintWithoutWork * Math.min(metrics.hintWithoutWorkCount, RULES.limits.hintWithoutWork);
 
-  score -= 18 * Math.min(metrics.meaningfulAttempts, 2);
-  score -= 18 * Math.min(metrics.correctAnswers, 2);
-  if (metrics.hasRevisedAfterFeedback) score -= 12;
-  score -= 7 * Math.min(metrics.gateCompletions, 2);
-  if (metrics.identifiedBlocker) score -= 4;
+  score += RULES.risk.meaningfulWork * Math.min(metrics.meaningfulAttempts, RULES.limits.meaningfulWork);
+  score += RULES.risk.correctAnswer * Math.min(metrics.correctAnswers, RULES.limits.correctAnswers);
+  if (metrics.hasRevisedAfterFeedback) score += RULES.risk.revisionAfterFeedback;
+  score += RULES.risk.gateCompleted * Math.min(metrics.gateCompletions, RULES.limits.gateCompletions);
+  if (metrics.identifiedBlocker) score += RULES.risk.statedStuckPoint;
 
-  return clamp(score);
+  return clamp(score, 0, RULES.risk.maxScore);
 };
 
 const getRiskLevel = (score) => {
-  if (score > 60) return 'red';
-  if (score > 30) return 'yellow';
-  return 'green';
+  if (score > RULES.risk.levels.watchMax) return 'high';
+  if (score > RULES.risk.levels.lowMax) return 'watch';
+  return 'low';
 };
 
 const updateRisk = (conversation, metrics = ensureMetrics(conversation)) => {
@@ -153,6 +173,8 @@ const updateRisk = (conversation, metrics = ensureMetrics(conversation)) => {
 
   metrics.lastRiskScore = score;
   metrics.lastRiskLevel = level;
+  metrics.riskScore = score;
+  metrics.riskLevel = level;
   markMetricsModified(conversation);
 
   return { score, level };
@@ -160,17 +182,22 @@ const updateRisk = (conversation, metrics = ensureMetrics(conversation)) => {
 
 const recordDependencyEvent = (conversation, type, details = {}, at = new Date()) => {
   const metrics = ensureMetrics(conversation);
+  const previousScore = Number(metrics.lastEventRiskScore || 0);
   conversation.dependencyEvents ??= [];
   conversation.dependencyEvents.push({
     type,
     at,
-    riskScore: metrics.lastRiskScore || 0,
-    riskLevel: metrics.lastRiskLevel || 'green',
+    riskScore: metrics.riskScore || 0,
+    riskLevel: metrics.riskLevel || 'low',
+    deltaScore: (metrics.riskScore || 0) - previousScore,
+    rulesetVersion: RULES.version,
     details,
   });
   if (typeof conversation.markModified === 'function') {
     conversation.markModified('dependencyEvents');
   }
+  metrics.lastEventRiskScore = metrics.riskScore || 0;
+  markMetricsModified(conversation);
 };
 
 const getNextHintTier = (metrics) => {
@@ -195,12 +222,12 @@ const buildCurrentGatePayload = (conversation, language = 'en', messageOverride 
   const copy = getCopy(language);
   const metrics = ensureMetrics(conversation);
   const gate = metrics.activeGate || {};
-  const level = gate.level || metrics.lastRiskLevel || 'yellow';
+  const level = gate.level || metrics.riskLevel || 'watch';
   const type = gate.type || 'reflection_gate';
   const message = messageOverride || (
     type === 'full_answer_gate'
       ? copy.fullAnswerGate
-      : level === 'red'
+      : level === 'high'
         ? copy.stepByStepGate
         : copy.reflectionGate
   );
@@ -219,13 +246,18 @@ const buildCurrentGatePayload = (conversation, language = 'en', messageOverride 
       fullAnswerRequirements: getFullAnswerRequirements(metrics),
       hintTier: gate.hintTier || getNextHintTier(metrics),
       progress: getProgress(metrics),
+      riskScore: metrics.riskScore,
+      riskLevel: metrics.riskLevel,
+      batteryLevel: 100 - metrics.riskScore,
+      hintsUsed: Math.min(metrics.hintRequests || 0, MAX_EXTRA_HINTS),
+      gate: { active: true, type, requiredAction: gate.requiredAction || 'mini_quiz_or_reflection' },
     },
   };
 };
 
 const buildInactiveIntervention = (conversation, language = 'en') => {
   const metrics = ensureMetrics(conversation);
-  const { level } = updateRisk(conversation, metrics);
+  const { level, score } = updateRisk(conversation, metrics);
   const fullAnswerRequirements = getFullAnswerRequirements(metrics);
 
   return {
@@ -239,6 +271,11 @@ const buildInactiveIntervention = (conversation, language = 'en') => {
     fullAnswerRequirements,
     hintTier: getNextHintTier(metrics),
     progress: getProgress(metrics),
+    riskScore: score,
+    riskLevel: level,
+    batteryLevel: 100 - score,
+    hintsUsed: Math.min(metrics.hintRequests || 0, MAX_EXTRA_HINTS),
+    gate: { active: false },
   };
 };
 
@@ -426,11 +463,20 @@ const recordGateResponse = (conversation, gateResponse, language = 'en') => {
     }
   }
 
+  const isAlternateView = validResponse.type === 'alternate_view' ||
+    (metrics.activeGate?.type === 'full_answer_gate' && validResponse.type === 'reflection');
+  if (isAlternateView && validResponse.value.trim()) {
+    metrics.hasWorkSinceFourthHint = true;
+    metrics.hasAttemptedAnswer = true;
+    metrics.hasMeaningfulAttempt = true;
+    metrics.hasMeaningfulWorkSinceLastHint = true;
+    metrics.meaningfulAttempts += 1;
+  }
   metrics.gateCompletions += 1;
 
   metrics.activeGate = { active: false };
   updateRisk(conversation, metrics);
-  recordDependencyEvent(conversation, 'gate_completed');
+  recordDependencyEvent(conversation, 'gate_completed', { isAlternateView });
   markMetricsModified(conversation);
 
   return { accepted: true, type: validResponse.type };
@@ -457,7 +503,12 @@ const recordHintRequest = (conversation, now = new Date()) => {
 
   metrics.hintRequests = projected.hintRequests;
   metrics.lastHintAt = now;
+  metrics.lastHelpAt = now;
   metrics.rapidHintRequests = projected.rapidHintRequests;
+  if (!metrics.hasMeaningfulWorkSinceLastHint && metrics.hintWithoutWorkCount < RULES.limits.hintWithoutWork) {
+    metrics.hintWithoutWorkCount += 1;
+  }
+  metrics.hasMeaningfulWorkSinceLastHint = false;
   metrics.activeGate = { active: false };
   updateRisk(conversation, metrics);
   recordDependencyEvent(conversation, 'hint_requested', {
@@ -491,15 +542,17 @@ const evaluateHintRequest = (conversation, language = 'en', gateResponse = null)
   const projected = projectHintRequest(metrics);
   const projectedScore = calculateRiskScore(projected);
   const projectedLevel = getRiskLevel(projectedScore);
-  const hasNoAttempt = !metrics.hasAttemptedAnswer && metrics.answerAttempts === 0;
+  const hasNoAttempt = !metrics.hasMeaningfulAttempt;
   const isRapidNow = projected.rapidHintRequests > (metrics.rapidHintRequests || 0);
   const shouldGate = !hasGateResponse && hasNoAttempt && (
-    projected.hintRequests >= 2 || isRapidNow
+    projected.hintRequests >= RULES.limits.gateAtHint || isRapidNow
   );
 
   if (shouldGate) {
     metrics.lastRiskScore = projectedScore;
     metrics.lastRiskLevel = projectedLevel;
+    metrics.riskScore = projectedScore;
+    metrics.riskLevel = projectedLevel;
     markMetricsModified(conversation);
 
     const result = {
@@ -507,12 +560,12 @@ const evaluateHintRequest = (conversation, language = 'en', gateResponse = null)
       ...buildGateIntervention(
         conversation,
         language,
-        projected.hintRequests === 2 ? 'blocker_choice_gate' : 'mini_quiz_gate',
+        projected.hintRequests === RULES.limits.gateAtHint ? 'blocker_choice_gate' : 'mini_quiz_gate',
         projectedLevel,
         getNextHintTier(metrics)
       ),
     };
-    recordDependencyEvent(conversation, 'gate_opened');
+    recordDependencyEvent(conversation, 'gate_opened', { isRapid: isRapidNow });
     return result;
   }
 
@@ -574,9 +627,12 @@ const evaluateFullAnswerRequest = (conversation, language = 'en', gateResponse =
           ? 'Em hãy dùng hết các gợi ý trước nhé. Khi đã nhận đủ 4 gợi ý, nút xem lời giải đầy đủ sẽ hiện ra.'
           : 'Please use all the hints first. The full-answer button appears after all 4 hints.')
         : (language === 'vi'
-          ? 'Em đã nhận đủ gợi ý rồi. Hãy gửi một bước em đã làm ở ô kiểm tra câu trả lời để mình mở lời giải đầy đủ nhé.'
-          : 'You have received all hints. Submit one relevant step in the answer check so I can unlock the full solution.'),
-      intervention: buildInactiveIntervention(conversation, language),
+          ? 'Trước khi xem lời giải, hãy viết một hướng em muốn thử trước nhé.'
+          : 'Before the full solution, write one direction you would try first.'),
+      intervention: (() => {
+        const gate = buildGateIntervention(conversation, language, 'full_answer_gate', metrics.riskLevel, getNextHintTier(metrics));
+        return gate.intervention;
+      })(),
     };
   }
 
@@ -596,6 +652,7 @@ const recordStudentAttempt = (conversation, hasMeaningfulAttempt = false) => {
   if (hasMeaningfulAttempt) {
     metrics.meaningfulAttempts += 1;
     metrics.hasMeaningfulAttempt = true;
+    metrics.hasMeaningfulWorkSinceLastHint = true;
   }
 
   if (metrics.answerChecks > 0 || metrics.incorrectAnswers > 0) {

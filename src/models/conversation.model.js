@@ -72,8 +72,8 @@ const activeGateSchema = new mongoose.Schema({
     },
     level: {
         type: String,
-        enum: ['green', 'yellow', 'red'],
-        default: 'green',
+        enum: ['green', 'yellow', 'red', 'low', 'watch', 'high'],
+        default: 'low',
     },
     hintTier: {
         type: Number,
@@ -128,6 +128,9 @@ const problemContextSchema = new mongoose.Schema({
 }, { _id: false });
 
 const interventionMetricsSchema = new mongoose.Schema({
+    rulesetVersion: { type: String, default: 'v2' },
+    riskScore: { type: Number, default: 0 },
+    riskLevel: { type: String, enum: ['low', 'watch', 'high'], default: 'low' },
     hintRequests: {
         type: Number,
         default: 0,
@@ -136,6 +139,11 @@ const interventionMetricsSchema = new mongoose.Schema({
         type: Date,
         required: false,
     },
+    lastHelpAt: { type: Date, required: false },
+    hasWorkSinceFourthHint: { type: Boolean, default: false },
+    hasMeaningfulWorkSinceLastHint: { type: Boolean, default: false },
+    hintWithoutWorkCount: { type: Number, default: 0 },
+    lastEventRiskScore: { type: Number, default: 0 },
     rapidHintRequests: {
         type: Number,
         default: 0,
@@ -198,7 +206,7 @@ const interventionMetricsSchema = new mongoose.Schema({
     },
     lastRiskLevel: {
         type: String,
-        enum: ['green', 'yellow', 'red'],
+        enum: ['green', 'yellow', 'red', 'low', 'watch', 'high'],
         default: 'green',
     },
     lastInterventionType: {
@@ -219,12 +227,15 @@ const dependencyEventSchema = new mongoose.Schema({
     },
     at: { type: Date, default: Date.now },
     riskScore: { type: Number, required: true },
-    riskLevel: { type: String, enum: ['green', 'yellow', 'red'], required: true },
+    riskLevel: { type: String, enum: ['green', 'yellow', 'red', 'low', 'watch', 'high'], required: true },
+    deltaScore: { type: Number, default: 0 },
+    rulesetVersion: { type: String, default: 'v2' },
     details: {
         isRapid: { type: Boolean, required: false },
         isCorrect: { type: Boolean, required: false },
         isMeaningfulAttempt: { type: Boolean, required: false },
         blocker: { type: String, required: false },
+        isAlternateView: { type: Boolean, required: false },
     },
 }, { _id: false });
 

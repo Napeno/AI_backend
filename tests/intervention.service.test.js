@@ -26,13 +26,14 @@ test('records timestamped dependency events for dashboard analytics', () => {
   assert.ok(conversation.dependencyEvents.every(event => event.at && Number.isFinite(event.riskScore)));
 });
 
-test('starts high, penalizes dependent use, and rewards verified learning progress', () => {
-  assert.equal(InterventionService.calculateRiskScore({}), 78);
-  assert.equal(InterventionService.getRiskLevel(78), 'red');
-  assert.equal(InterventionService.calculateRiskScore({ hintRequests: 1 }), 91);
-  assert.equal(InterventionService.calculateRiskScore({ meaningfulAttempts: 1 }), 60);
-  assert.equal(InterventionService.calculateRiskScore({ meaningfulAttempts: 1, correctAnswers: 1 }), 42);
-  assert.equal(InterventionService.calculateRiskScore({ meaningfulAttempts: 1, correctAnswers: 1, hasRevisedAfterFeedback: true }), 30);
+test('starts at zero and applies the v2 risk rules with clamp and levels', () => {
+  assert.equal(InterventionService.calculateRiskScore({}), 0);
+  assert.equal(InterventionService.getRiskLevel(0), 'low');
+  assert.equal(InterventionService.getRiskLevel(31), 'watch');
+  assert.equal(InterventionService.getRiskLevel(61), 'high');
+  assert.equal(InterventionService.calculateRiskScore({ hintRequests: 1 }), 13);
+  assert.equal(InterventionService.calculateRiskScore({ hintRequests: 50, rapidHintRequests: 50, fullAnswerRequests: 50 }), 100);
+  assert.equal(InterventionService.calculateRiskScore({ meaningfulAttempts: 2, correctAnswers: 2, gateCompletions: 2 }), 0);
 });
 
 test('records a correct answer as learning progress for dependency risk', () => {
@@ -42,24 +43,25 @@ test('records a correct answer as learning progress for dependency risk', () => 
 
   assert.equal(conversation.interventionMetrics.meaningfulAttempts, 1);
   assert.equal(conversation.interventionMetrics.correctAnswers, 1);
-  assert.equal(conversation.interventionMetrics.lastRiskScore, 42);
+  assert.equal(conversation.interventionMetrics.lastRiskScore, 0);
   assert.deepEqual(conversation.dependencyEvents[0].details, { isCorrect: true, isMeaningfulAttempt: true });
 });
 
-test('does not gate the first hint solely because the baseline is high', () => {
+test('allows the first hint and exposes battery state', () => {
   const conversation = createConversation();
   const result = InterventionService.evaluateHintRequest(conversation, 'vi');
 
   assert.equal(result.allowed, true);
-  assert.equal(conversation.interventionMetrics.lastRiskScore, 91);
+  assert.equal(conversation.interventionMetrics.lastRiskScore, 13);
+  assert.equal(result.intervention.batteryLevel, 87);
 });
 
-test('marks only hints less than three seconds apart as rapid', () => {
+test('marks only hints less than ten seconds apart as rapid', () => {
   const quickConversation = createConversation();
   quickConversation.interventionMetrics = {
-    hasAttemptedAnswer: true,
+    rulesetVersion: 'v2', hasAttemptedAnswer: true,
     answerAttempts: 1,
-    lastHintAt: new Date(Date.now() - 2_000),
+    lastHintAt: new Date(Date.now() - 9_000),
   };
 
   InterventionService.evaluateHintRequest(quickConversation, 'vi');
@@ -67,9 +69,9 @@ test('marks only hints less than three seconds apart as rapid', () => {
 
   const normalConversation = createConversation();
   normalConversation.interventionMetrics = {
-    hasAttemptedAnswer: true,
+    rulesetVersion: 'v2', hasAttemptedAnswer: true,
     answerAttempts: 1,
-    lastHintAt: new Date(Date.now() - 4_000),
+    lastHintAt: new Date(Date.now() - 11_000),
   };
 
   InterventionService.evaluateHintRequest(normalConversation, 'vi');
@@ -102,7 +104,7 @@ test('guides repeated hint requests from blocker choice to a mini quiz', () => {
 test('handles every support choice without consuming a hint request', () => {
   for (const value of ['understand_question', 'theory', 'start', 'calculation', 'creative']) {
     const conversation = createConversation();
-    conversation.interventionMetrics.hintRequests = 1;
+    conversation.interventionMetrics = { rulesetVersion: 'v2', hintRequests: 1 };
 
     const result = InterventionService.evaluateSupportChoice(conversation, 'vi', {
       type: 'support_choice',
@@ -147,13 +149,27 @@ test('only unlocks a full answer after all hints and a meaningful attempt', () =
 
 test('does not count a quiz or reflection as a meaningful attempt', () => {
   const conversation = createConversation();
-  conversation.interventionMetrics.hintRequests = 4;
+  conversation.interventionMetrics = { rulesetVersion: 'v2', hintRequests: 4 };
 
   InterventionService.recordGateResponse(conversation, { type: 'reflection', value: 'Em chưa biết.' }, 'vi');
 
   assert.equal(conversation.interventionMetrics.hasAttemptedAnswer, false);
   assert.equal(conversation.interventionMetrics.hasMeaningfulAttempt, false);
   assert.equal(InterventionService.evaluateFullAnswerRequest(conversation, 'vi').allowed, false);
+});
+
+test('unlocks the full answer through one alternate-view response after four hints', () => {
+  const conversation = createConversation();
+  conversation.interventionMetrics = { rulesetVersion: 'v2', hintRequests: 4 };
+  const blocked = InterventionService.evaluateFullAnswerRequest(conversation, 'vi');
+  assert.equal(blocked.allowed, false);
+  assert.equal(blocked.intervention.type, 'full_answer_gate');
+
+  const allowed = InterventionService.evaluateFullAnswerRequest(conversation, 'vi', {
+    type: 'alternate_view', value: 'Em sẽ thử đặt ẩn rồi so sánh hai vế.',
+  });
+  assert.equal(allowed.allowed, true);
+  assert.equal(conversation.interventionMetrics.hasWorkSinceFourthHint, true);
 });
 
 test('provides a safe fallback for each blocker choice', () => {
@@ -235,7 +251,7 @@ test('logs Gemini error details without serializing the whole request', () => {
 
 test('keeps a mini quiz open and gives its stored hint after a wrong choice', () => {
   const conversation = createConversation();
-  conversation.interventionMetrics.activeGate = {
+  conversation.interventionMetrics = { rulesetVersion: 'v2', activeGate: {
     active: true,
     type: 'mini_quiz_gate',
     requiredAction: 'mini_quiz_or_reflection',
@@ -245,7 +261,7 @@ test('keeps a mini quiz open and gives its stored hint after a wrong choice', ()
       correctOptionId: 'A',
       explanation: 'Xem lại bước đầu tiên.',
     },
-  };
+  } };
 
   const result = InterventionService.evaluateHintRequest(conversation, 'vi', {
     type: 'quiz_choice',

@@ -11,7 +11,7 @@ module.exports = async function auth(req, res, next) {
     }
 
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(payload.sub || payload.userId || payload.id).select('_id name username role coins points rank avatar ownedAvatars');
+    const user = await User.findById(payload.sub || payload.userId || payload.id).select('_id name username role chestnuts coins points rank avatar ownedAvatars');
     
     if (!user) {
       return res.status(401).json({ error: 'User not found' });

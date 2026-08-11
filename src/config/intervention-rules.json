@@ -1,0 +1,6 @@
+{
+  "version": "v2",
+  "risk": { "hintFirstThree": 5, "hintAfterThree": 8, "rapidHint": 12, "hintWithoutWork": 8, "fullAnswer": 16, "meaningfulWork": -18, "correctAnswer": -18, "revisionAfterFeedback": -12, "gateCompleted": -7, "statedStuckPoint": -4, "maxScore": 100, "levels": { "lowMax": 30, "watchMax": 60 } },
+  "limits": { "maxHints": 4, "gateAtHint": 2, "rapidHelpMs": 10000, "rapidHints": 2, "hintWithoutWork": 1, "fullAnswers": 2, "meaningfulWork": 2, "correctAnswers": 2, "gateCompletions": 2, "statedStuckPoints": 1 },
+  "rewards": { "correctAnswer": 5, "practiceCorrect": 5, "monthlyReset": 50 }
+}

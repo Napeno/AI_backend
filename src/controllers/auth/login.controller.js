@@ -34,7 +34,7 @@ const login = async (req, res) => {
         name: user.name, 
         username: user.username,
         role: user.role || 'student',
-        coins: user.coins || 0,
+        chestnuts: user.chestnuts ?? user.coins ?? 0,
         points: user.points || 0,
         rank: user.rank || 'iron',
         avatar: user.avatar || 'default',

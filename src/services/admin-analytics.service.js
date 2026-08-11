@@ -1,8 +1,8 @@
 const { BASELINE_RISK_SCORE, getRiskLevel } = require('./intervention.service');
 
-const RISK_LEVELS = ['green', 'yellow', 'red'];
-const RISK_LEVEL_INDEX = { green: 1, yellow: 2, red: 3 };
-const RISK_LABELS = { green: 'Thấp', yellow: 'Cần theo dõi', red: 'Cao' };
+const RISK_LEVELS = ['low', 'watch', 'high'];
+const RISK_LEVEL_INDEX = { low: 1, watch: 2, high: 3 };
+const RISK_LABELS = { low: 'Thấp', watch: 'Cần theo dõi', high: 'Cao' };
 
 const toDate = (value, endOfDay = false) => {
   if (!value) return null;
@@ -49,17 +49,18 @@ const realAnalytics = (conversations, filters) => {
 
   for (const conversation of relevant) {
     const conversationEvents = (conversation.dependencyEvents || [])
+      .filter(event => event.rulesetVersion === 'v2')
       .filter(event => inRange(event.at, from, to))
       .map(event => ({ ...event, subjectArea: conversation.subjectArea, educationLevel: conversation.educationLevel }));
     events.push(...conversationEvents);
     const current = latest(conversationEvents);
     if (current) {
       states.push(current);
-    } else if (allTime && conversation.interventionMetrics) {
+    } else if (allTime && conversation.interventionMetrics?.rulesetVersion === 'v2') {
       states.push({
         at: conversation.updatedAt,
         riskScore: conversation.interventionMetrics.lastRiskScore ?? BASELINE_RISK_SCORE,
-        riskLevel: conversation.interventionMetrics.lastRiskLevel || 'red',
+        riskLevel: conversation.interventionMetrics.riskLevel || conversation.interventionMetrics.lastRiskLevel || 'low',
       });
     }
   }
@@ -130,7 +131,7 @@ const buildStudent = (user, conversations, filters = {}) => {
 const bucketFor = (event, groupBy) => {
   const date = new Date(event.at);
   if (groupBy === 'subject') return event.subjectArea || 'mô phỏng';
-  if (groupBy === 'riskLevel') return event.riskLevel || 'red';
+  if (groupBy === 'riskLevel') return event.riskLevel || 'low';
   if (groupBy === 'month') return date.toISOString().slice(0, 7);
   if (groupBy === 'week') {
     const start = new Date(date);
@@ -167,7 +168,7 @@ const buildChart = (students, metric = 'risk', groupBy = 'day') => {
 
 const countByRisk = (students, key) => Object.values(students.reduce((rows, student) => {
   const label = student[key] || 'unclassified';
-  rows[label] ||= { label, green: 0, yellow: 0, red: 0 };
+  rows[label] ||= { label, low: 0, watch: 0, high: 0 };
   rows[label][student.riskLevel] += 1;
   return rows;
 }, {}));
@@ -185,7 +186,7 @@ const buildToday = (students, now = new Date()) => {
   return {
     activeStudents: active.length,
     behaviors: behaviorTypes.map(([type, label]) => ({ label, value: events.filter(event => event.type === type).length })),
-    riskDistribution: ['red', 'yellow', 'green'].map(level => ({ label: RISK_LABELS[level], value: active.filter(item => getRiskLevel(latest(item.events).riskScore) === level).length, color: { red: '#ef4444', yellow: '#f59e0b', green: '#10b981' }[level] })),
+    riskDistribution: ['high', 'watch', 'low'].map(level => ({ label: RISK_LABELS[level], value: active.filter(item => getRiskLevel(latest(item.events).riskScore) === level).length, color: { high: '#ef4444', watch: '#f59e0b', low: '#10b981' }[level] })),
     students: active.map(({ student, events: studentEvents }) => {
       const event = latest(studentEvents);
       return { id: student.id, name: student.name, username: student.username, riskLevel: getRiskLevel(event.riskScore), behavior: behaviorTypes.find(([type]) => type === event.type)?.[1] || event.type, at: event.at };
@@ -234,8 +235,8 @@ const buildAnalytics = (users, conversations, filters = {}) => {
   const quizScores = students.map(student => student.quiz?.score).filter(Number.isFinite);
   const summary = {
     totalStudents: students.length,
-    requiresIntervention: distribution.red,
-    watchingStudents: distribution.yellow,
+    requiresIntervention: distribution.high,
+    watchingStudents: distribution.watch,
     improvedStudents: students.filter(student => student.improvement >= 15).length,
     averageBehavioralRisk: average(students.map(student => student.behavioralRisk)),
     averageQuizScore: quizScores.length ? Math.round(quizScores.reduce((sum, score) => sum + score, 0) / quizScores.length * 10) / 10 : null,

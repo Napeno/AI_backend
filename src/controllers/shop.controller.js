@@ -36,13 +36,13 @@ const purchaseAvatar = async (req, res) => {
       return res.status(400).json({ error: 'Avatar already owned' });
     }
 
-    // Check if user has enough coins
-    if (user.coins < price) {
-      return res.status(400).json({ error: 'Insufficient coins' });
+    // Check if user has enough chestnuts
+    if ((user.chestnuts ?? user.coins ?? 0) < price) {
+      return res.status(400).json({ error: 'Insufficient chestnuts' });
     }
 
     // Purchase avatar
-    user.coins -= price;
+    user.chestnuts = (user.chestnuts ?? user.coins ?? 0) - price;
     user.ownedAvatars.push(avatarId);
     await user.save();
 
@@ -52,7 +52,7 @@ const purchaseAvatar = async (req, res) => {
         _id: user._id,
         name: user.name,
         email: user.email,
-        coins: user.coins,
+        chestnuts: user.chestnuts,
         points: user.points,
         rank: user.rank,
         avatar: user.avatar,

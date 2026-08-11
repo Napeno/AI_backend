@@ -1,5 +1,8 @@
 const PracticeItem = require('../models/practice-item.model');
+const User = require('../models/user.model');
 const mongoose = require('mongoose');
+const { awardChestnuts } = require('../services/reward.service');
+const RULES = require('../config/intervention-rules.json');
 const {
   addAssistantTurn,
   addPracticeTurn,
@@ -130,11 +133,23 @@ const submitAttempt = async (req, res) => {
     }
     addAssistantTurn(item, action, result);
     await item.save();
+    let chestnutsAwarded = 0;
+    let totalChestnuts = null;
+    if (action === 'attempt' && result.isCorrect === true) {
+      const user = await User.findById(req.user._id);
+      if (user) {
+        const reward = await awardChestnuts(user, RULES.rewards.practiceCorrect, 'practice_correct', `practice-correct:${item._id}`);
+        chestnutsAwarded = reward.awarded ? RULES.rewards.practiceCorrect : 0;
+        totalChestnuts = reward.balance;
+      }
+    }
 
     return res.json({
       ...result,
       action,
       item: toPublicPracticeItem(item),
+      chestnutsAwarded,
+      totalChestnuts,
     });
   } catch (error) {
     console.error('Error submitting practice attempt:', error);

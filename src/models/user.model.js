@@ -24,6 +24,14 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  chestnuts: {
+    type: Number,
+    default: 0,
+  },
+  badges: [{
+    code: { type: String, required: true },
+    earnedAt: { type: Date, default: Date.now },
+  }],
   points: {
     type: Number,
     default: 0,

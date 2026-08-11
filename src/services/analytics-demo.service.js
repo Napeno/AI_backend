@@ -73,7 +73,7 @@ const buildAnalyticsDemo = (userId, now = new Date()) => {
     seededAt: now,
     baselineScore: BASELINE_RISK_SCORE,
     currentScore,
-    riskLevel,
+    riskLevel: getRiskLevel(currentScore),
     educationLevel: LEVELS[Math.floor(randomFor(seed, 3) * LEVELS.length)],
     subjectArea: SUBJECTS[Math.floor(randomFor(seed, 4) * SUBJECTS.length)],
     events,

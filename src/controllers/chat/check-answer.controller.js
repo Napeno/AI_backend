@@ -1,6 +1,8 @@
 const Conversation = require('../../models/conversation.model');
 const User = require('../../models/user.model');
 const RankingService = require('../../services/ranking.service');
+const { awardChestnuts } = require('../../services/reward.service');
+const RULES = require('../../config/intervention-rules.json');
 const ImageUploadService = require('../../services/image-upload.service');
 const InterventionService = require('../../services/intervention.service');
 const { capturePracticeItem } = require('../../services/practice.service');
@@ -52,14 +54,19 @@ const checkAnswer = async (req, res, imageData = null) => {
   });
   const isCorrect = evaluation.status === 'correct' ? true : evaluation.status === 'incorrect' ? false : null;
   let responseText = evaluation.feedback;
-  let coinsAwarded = 0;
+  let chestnutsAwarded = 0;
   let pointsAwarded = 0;
 
   if (isCorrect === true) {
     const user = await User.findById(req.user._id);
     if (user) {
-      user.coins += 10;
-      coinsAwarded = 10;
+      const reward = await awardChestnuts(
+        user,
+        RULES.rewards.correctAnswer,
+        'correct_answer',
+        `correct-answer:${conversation._id}:${evaluation.questionId || 'current'}`
+      );
+      chestnutsAwarded = reward.awarded ? RULES.rewards.correctAnswer : 0;
       pointsAwarded = 25;
       const pointsResult = RankingService.awardPoints(user, pointsAwarded, 'correct_answer');
       await user.save();
@@ -107,8 +114,8 @@ const checkAnswer = async (req, res, imageData = null) => {
       evidence: evaluation.evidence,
     },
     problemContext: toPublicProblemContext(conversation.problemContext),
-    coinsAwarded,
-    totalCoins: updatedUser?.coins ?? null,
+    chestnutsAwarded,
+    totalChestnuts: updatedUser?.chestnuts ?? null,
     totalPoints: updatedUser?.points ?? null,
     currentRank: updatedUser?.rank ?? null,
     pointsAwarded,

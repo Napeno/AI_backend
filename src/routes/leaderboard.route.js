@@ -9,10 +9,10 @@ router.get('/', async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Get users sorted by points (descending), then by coins (descending)
+    // Get users sorted by points (descending), then by chestnuts (descending)
     const users = await User.find({})
-      .select('name email coins points rank avatar')
-      .sort({ points: -1, coins: -1, createdAt: 1 })
+      .select('name email chestnuts points rank avatar')
+      .sort({ points: -1, chestnuts: -1, createdAt: 1 })
       .skip(skip)
       .limit(limit)
       .lean();
@@ -55,7 +55,7 @@ router.get('/my-rank', async (req, res) => {
     const userId = req.user._id;
     
     // Find current user
-    const currentUser = await User.findById(userId).select('coins points');
+    const currentUser = await User.findById(userId).select('chestnuts points');
     if (!currentUser) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -66,11 +66,11 @@ router.get('/my-rank', async (req, res) => {
         { points: { $gt: currentUser.points } },
         { 
           points: currentUser.points, 
-          coins: { $gt: currentUser.coins } 
+          chestnuts: { $gt: currentUser.chestnuts } 
         },
         { 
           points: currentUser.points, 
-          coins: currentUser.coins,
+          chestnuts: currentUser.chestnuts,
           createdAt: { $lt: req.user.createdAt }
         }
       ]
@@ -80,7 +80,7 @@ router.get('/my-rank', async (req, res) => {
 
     res.json({
       rank: userRank,
-      coins: currentUser.coins,
+      chestnuts: currentUser.chestnuts,
       points: currentUser.points,
       success: true
     });
@@ -99,8 +99,8 @@ router.get('/top', async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
 
     const topUsers = await User.find({})
-      .select('name email coins points rank avatar')
-      .sort({ points: -1, coins: -1, createdAt: 1 })
+      .select('name email chestnuts points rank avatar')
+      .sort({ points: -1, chestnuts: -1, createdAt: 1 })
       .limit(limit)
       .lean();
 
