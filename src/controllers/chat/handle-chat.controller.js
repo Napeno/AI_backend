@@ -6,7 +6,7 @@ const { getMessages, checkIfInternalPrompt } = require('./utils');
 
 const handleChat = async (req, res) => {
   try {
-    const { message, sessionId, language = 'en', educationLevel, subjectArea } = req.body;
+    const { message, sessionId, language = 'en', educationLevel, subjectArea, course } = req.body;
     console.log('handleChat called with:', { message: message?.substring(0, 50), sessionId, language, educationLevel, subjectArea });
     
     if (!message || !sessionId) {
@@ -30,11 +30,13 @@ const handleChat = async (req, res) => {
         sessionId, 
         history: [],
         educationLevel: educationLevel || 'middle',
-        subjectArea: subjectArea || 'natural_sciences'
+        subjectArea: subjectArea || 'natural_sciences',
+        course: course || 'mathematics'
       });
       console.log('Created new conversation for user:', req.user._id, 'sessionId:', sessionId);
     } else {
       console.log('Found existing conversation with', conversation.history.length, 'messages');
+      if (course && !conversation.course) conversation.course = course;
     }
 
     // Only save user message if it's NOT an internal prompt

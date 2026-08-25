@@ -9,6 +9,7 @@ const { capturePracticeItem } = require('../../services/practice.service');
 const { evaluateAnswer } = require('../../services/answer-evaluator.service');
 const { toPublicProblemContext } = require('../../services/problem-context.service');
 const { getMessages } = require('./utils');
+const ThinkerService = require('../../services/thinker.service');
 
 // Kept for older tests/callers; new checks use the structured evaluator below.
 const parseCheckAnswerResponse = (modelResponse) => {
@@ -83,6 +84,7 @@ const checkAnswer = async (req, res, imageData = null) => {
   }
 
   recordAnswerEvaluation(conversation, evaluation, isCorrect);
+  const badge = await ThinkerService.awardSelfTrialBadge(req.user._id, conversation);
   if (isCorrect === false) responseText += InterventionService.getFoundationSupportMessage(conversation, language);
 
   conversation.history.push({
@@ -119,6 +121,7 @@ const checkAnswer = async (req, res, imageData = null) => {
     totalPoints: updatedUser?.points ?? null,
     currentRank: updatedUser?.rank ?? null,
     pointsAwarded,
+    badge,
     intervention: InterventionService.buildInactiveIntervention(conversation, language),
     imageUrl: answerImageUrl,
   });

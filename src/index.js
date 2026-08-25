@@ -12,6 +12,7 @@ const practiceRoutes = require('./routes/practice.route');
 const auth = require('./middleware/auth');
 const requireAdmin = require('./middleware/require-admin');
 const adminRoutes = require('./routes/admin.route');
+const aiTutorRoutes = require('./routes/ai-tutor.route');
 
 // Connect to MongoDB
 connectDB();
@@ -21,7 +22,7 @@ const app = express();
 if (process.env.MODE === 'localhost') {
   // Enable CORS for local development
   app.use(cors({
-    origin: 'http://localhost:3000'
+    origin: ['http://localhost:3000', 'http://localhost:3001']
   }));
 }
 
@@ -37,6 +38,7 @@ app.use('/api/leaderboard', auth, leaderboardRoutes);
 app.use('/api/quiz', quizRoutes);
 app.use('/api/practice', auth, practiceRoutes);
 app.use('/api/admin', auth, requireAdmin, adminRoutes);
+app.use('/api/ai-tutor', aiTutorRoutes);
 
 app.get('/', (req, res) => {
   res.send('Chatbot API is running!');

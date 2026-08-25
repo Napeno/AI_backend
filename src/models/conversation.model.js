@@ -143,6 +143,8 @@ const interventionMetricsSchema = new mongoose.Schema({
     hasWorkSinceFourthHint: { type: Boolean, default: false },
     hasMeaningfulWorkSinceLastHint: { type: Boolean, default: false },
     hintWithoutWorkCount: { type: Number, default: 0 },
+    selfAttemptStreak: { type: Number, default: 0 },
+    bestSelfAttemptStreak: { type: Number, default: 0 },
     lastEventRiskScore: { type: Number, default: 0 },
     rapidHintRequests: {
         type: Number,
@@ -236,7 +238,15 @@ const dependencyEventSchema = new mongoose.Schema({
         isMeaningfulAttempt: { type: Boolean, required: false },
         blocker: { type: String, required: false },
         isAlternateView: { type: Boolean, required: false },
+        problemKey: { type: String, required: false },
     },
+}, { _id: false });
+
+const aiErrorReportSchema = new mongoose.Schema({
+    messageText: { type: String, required: true, maxlength: 12000 },
+    correction: { type: String, required: true, maxlength: 2000 },
+    status: { type: String, enum: ['validated'], default: 'validated' },
+    createdAt: { type: Date, default: Date.now },
 }, { _id: false });
 
 const conversationSchema = new mongoose.Schema({
@@ -270,6 +280,10 @@ const conversationSchema = new mongoose.Schema({
     },
     dependencyEvents: {
         type: [dependencyEventSchema],
+        default: [],
+    },
+    aiErrorReports: {
+        type: [aiErrorReportSchema],
         default: [],
     },
     problemContext: {

@@ -53,7 +53,16 @@ test('allows the first hint and exposes battery state', () => {
 
   assert.equal(result.allowed, true);
   assert.equal(conversation.interventionMetrics.lastRiskScore, 13);
-  assert.equal(result.intervention.batteryLevel, 87);
+  assert.equal(result.intervention.batteryLevel, 93);
+});
+
+test('counts a self-trial streak only when work comes before each hint', () => {
+  const conversation = createConversation();
+  for (let index = 0; index < 3; index += 1) {
+    InterventionService.recordStudentAttempt(conversation, true);
+    InterventionService.evaluateHintRequest(conversation, 'vi');
+  }
+  assert.equal(conversation.interventionMetrics.bestSelfAttemptStreak, 3);
 });
 
 test('marks only hints less than ten seconds apart as rapid', () => {

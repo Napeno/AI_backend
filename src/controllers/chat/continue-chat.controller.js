@@ -118,7 +118,7 @@ const continueChat = async (req, res) => {
     
     res.json({
       message: modelResponse,
-      intervention: InterventionService.buildInactiveIntervention(conversation, language)
+      intervention: InterventionService.buildInactiveIntervention(conversation, language),
     });
   } catch (error) {
     console.error(JSON.stringify({

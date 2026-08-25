@@ -9,7 +9,7 @@ const shouldUpdateProblemContext = (imagePurpose) => imagePurpose !== 'student_w
 
 const handleImageChat = async (req, res) => {
   try {
-    const { message, sessionId, language = 'en', educationLevel, subjectArea, imagePurpose } = req.body;
+    const { message, sessionId, language = 'en', educationLevel, subjectArea, course, imagePurpose } = req.body;
     const imageFile = req.file;
     
     console.log('handleImageChat called with:', { 
@@ -49,11 +49,13 @@ const handleImageChat = async (req, res) => {
         sessionId, 
         history: [],
         educationLevel: educationLevel || 'middle',
-        subjectArea: subjectArea || 'natural_sciences'
+        subjectArea: subjectArea || 'natural_sciences',
+        course: course || 'mathematics'
       });
       console.log('Created new conversation for user:', req.user._id, 'sessionId:', sessionId);
     } else {
       console.log('Found existing conversation with', conversation.history.length, 'messages');
+      if (course && !conversation.course) conversation.course = course;
     }
 
     let imageData = null;

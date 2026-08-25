@@ -1,5 +1,6 @@
 const enMessages = require('../locales/en.json');
 const viMessages = require('../locales/vi.json');
+const { createHash } = require('node:crypto');
 const RULES = require('../config/intervention-rules.json');
 
 const RAPID_HINT_THRESHOLD_MS = RULES.limits.rapidHelpMs;
@@ -59,6 +60,14 @@ const getCopy = (language = 'en') => {
 
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, value));
 
+// Keep the learner-facing energy calm during ordinary hinting; intervention
+// rules still use the unmodified risk score above.
+const getBatteryLevel = (riskScore) => Math.round(100 * Math.pow(1 - clamp(riskScore) / 100, 0.55));
+const getProblemKey = (conversation) => {
+  const source = String(conversation.problemContext?.sourceText || '').trim();
+  return source ? createHash('sha256').update(source).digest('hex').slice(0, 12) : null;
+};
+
 const markMetricsModified = (conversation) => {
   if (typeof conversation.markModified === 'function') {
     conversation.markModified('interventionMetrics');
@@ -80,6 +89,7 @@ const ensureMetrics = (conversation) => {
       hasAttemptedAnswer: false, hasMeaningfulAttempt: false, hasCheckedAnswer: false,
       hasRevisedAfterFeedback: false, identifiedBlocker: false, hasWorkSinceFourthHint: false,
       hasMeaningfulWorkSinceLastHint: false, hintWithoutWorkCount: 0,
+      selfAttemptStreak: 0, bestSelfAttemptStreak: 0,
       lastHintAt: null, lastHelpAt: null, activeGate: { active: false },
     });
   }
@@ -100,6 +110,8 @@ const ensureMetrics = (conversation) => {
   metrics.hasWorkSinceFourthHint ??= false;
   metrics.hasMeaningfulWorkSinceLastHint ??= false;
   metrics.hintWithoutWorkCount ??= 0;
+  metrics.selfAttemptStreak ??= 0;
+  metrics.bestSelfAttemptStreak ??= 0;
   metrics.lastEventRiskScore ??= 0;
   metrics.riskScore ??= BASELINE_RISK_SCORE;
   metrics.riskLevel ??= 'low';
@@ -191,7 +203,7 @@ const recordDependencyEvent = (conversation, type, details = {}, at = new Date()
     riskLevel: metrics.riskLevel || 'low',
     deltaScore: (metrics.riskScore || 0) - previousScore,
     rulesetVersion: RULES.version,
-    details,
+    details: { ...details, ...(getProblemKey(conversation) ? { problemKey: getProblemKey(conversation) } : {}) },
   });
   if (typeof conversation.markModified === 'function') {
     conversation.markModified('dependencyEvents');
@@ -248,7 +260,7 @@ const buildCurrentGatePayload = (conversation, language = 'en', messageOverride 
       progress: getProgress(metrics),
       riskScore: metrics.riskScore,
       riskLevel: metrics.riskLevel,
-      batteryLevel: 100 - metrics.riskScore,
+      batteryLevel: getBatteryLevel(metrics.riskScore),
       hintsUsed: Math.min(metrics.hintRequests || 0, MAX_EXTRA_HINTS),
       gate: { active: true, type, requiredAction: gate.requiredAction || 'mini_quiz_or_reflection' },
     },
@@ -273,7 +285,7 @@ const buildInactiveIntervention = (conversation, language = 'en') => {
     progress: getProgress(metrics),
     riskScore: score,
     riskLevel: level,
-    batteryLevel: 100 - score,
+    batteryLevel: getBatteryLevel(score),
     hintsUsed: Math.min(metrics.hintRequests || 0, MAX_EXTRA_HINTS),
     gate: { active: false },
   };
@@ -508,6 +520,7 @@ const recordHintRequest = (conversation, now = new Date()) => {
   if (!metrics.hasMeaningfulWorkSinceLastHint && metrics.hintWithoutWorkCount < RULES.limits.hintWithoutWork) {
     metrics.hintWithoutWorkCount += 1;
   }
+  if (!metrics.hasMeaningfulWorkSinceLastHint) metrics.selfAttemptStreak = 0;
   metrics.hasMeaningfulWorkSinceLastHint = false;
   metrics.activeGate = { active: false };
   updateRisk(conversation, metrics);
@@ -653,6 +666,8 @@ const recordStudentAttempt = (conversation, hasMeaningfulAttempt = false) => {
     metrics.meaningfulAttempts += 1;
     metrics.hasMeaningfulAttempt = true;
     metrics.hasMeaningfulWorkSinceLastHint = true;
+    metrics.selfAttemptStreak += 1;
+    metrics.bestSelfAttemptStreak = Math.max(metrics.bestSelfAttemptStreak, metrics.selfAttemptStreak);
   }
 
   if (metrics.answerChecks > 0 || metrics.incorrectAnswers > 0) {

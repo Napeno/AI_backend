@@ -3,6 +3,7 @@ const router = express.Router();
 const User = require('../models/user.model');
 const Conversation = require('../models/conversation.model');
 const RewardTransaction = require('../models/reward-transaction.model');
+const ThinkerService = require('../services/thinker.service');
 
 // Change avatar
 router.put('/change-avatar', async (req, res) => {
@@ -40,22 +41,41 @@ router.get('/rewards', async (req, res) => {
 
 router.get('/badges', async (req, res) => {
   const user = await User.findById(req.user._id).select('badges').lean();
-  return res.json({ badges: user?.badges || [] });
+  const earned = new Map((user?.badges || []).map(badge => [badge.code, badge.earnedAt]));
+  return res.json({ badges: ThinkerService.getBadgeDefinitions().map(badge => ({ ...badge, earnedAt: earned.get(badge.code) || null })) });
+});
+
+router.post('/ai-error', async (req, res) => {
+  const { sessionId, messageText, correction, language = 'vi' } = req.body || {};
+  if (!sessionId || !messageText || !ThinkerService.isConcreteCorrection(correction)) {
+    return res.status(400).json({ error: 'A specific correction is required' });
+  }
+
+  const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
+  if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+  const isAiMessage = conversation.history.some(message => message.role === 'model' && message.parts?.some(part => part.text === messageText));
+  if (!isAiMessage) return res.status(400).json({ error: 'Message was not found in this conversation' });
+
+  const valid = await ThinkerService.validateAiCorrection({
+    sourceText: conversation.problemContext?.sourceText,
+    aiResponse: messageText,
+    correction,
+    language,
+  });
+  if (!valid) return res.json({ reported: false, valid: false, message: 'Chưa đủ căn cứ để xác nhận lỗi này.' });
+
+  conversation.aiErrorReports.push({ messageText: String(messageText).slice(0, 12000), correction: String(correction).trim().slice(0, 2000) });
+  await conversation.save();
+  const badge = await ThinkerService.awardAiErrorBadge(req.user._id);
+  return res.json({ reported: true, valid: true, badge });
 });
 
 router.get('/journal/weekly', async (req, res) => {
   const now = new Date();
-  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const conversations = await Conversation.find({ user: req.user._id, 'dependencyEvents.at': { $gte: weekAgo } })
+  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+  const conversations = await Conversation.find({ user: req.user._id, 'dependencyEvents.at': { $gte: twoWeeksAgo } })
     .select('dependencyEvents').lean();
-  const events = conversations.flatMap(item => item.dependencyEvents || [])
-    .filter(event => event.rulesetVersion === 'v2' && new Date(event.at) >= weekAgo);
-  const meaningful = events.filter(event => event.type === 'answer_checked' && event.details?.isMeaningfulAttempt).length;
-  const hints = events.filter(event => event.type === 'hint_requested').length;
-  const message = meaningful
-    ? `Tuần này em đã gửi ${meaningful} bước làm có ý nghĩa trước khi tiếp tục học.`
-    : 'Tuần này hãy thử viết một bước em đang nghĩ trước khi xin thêm gợi ý nhé.';
-  return res.json({ from: weekAgo, to: now, meaningfulWork: meaningful, hints, message });
+  return res.json(ThinkerService.buildWeeklyJournal(conversations, now));
 });
 
 router.get('/risk-trend', async (req, res) => {
