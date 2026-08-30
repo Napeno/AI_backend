@@ -219,6 +219,15 @@ const interventionMetricsSchema = new mongoose.Schema({
         type: activeGateSchema,
         default: () => ({ active: false }),
     },
+    miniQuizHistory: [{
+        question: { type: String, required: false },
+        options: [{
+            id: { type: String, required: false },
+            text: { type: String, required: false },
+        }],
+        correctOptionId: { type: String, required: false },
+        explanation: { type: String, required: false },
+    }],
 }, { _id: false });
 
 const dependencyEventSchema = new mongoose.Schema({

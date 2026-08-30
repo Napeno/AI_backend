@@ -122,8 +122,8 @@ const getCurrentIntervention = async (req, res) => {
       });
     }
 
-    const miniQuiz = activeGate.requiredAction === 'mini_quiz_or_reflection'
-      ? await InterventionQuizService.ensureMiniQuizForGate(conversation, language)
+    const miniQuiz = activeGate.active
+      ? await InterventionQuizService.ensureMiniQuizForGate(conversation, language, { refresh: true })
       : null;
     if (miniQuiz) {
       await conversation.save();

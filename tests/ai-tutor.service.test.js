@@ -92,6 +92,24 @@ test('creates a same-topic example when the source only names the algebra topic'
   assert.ok(lesson.questions.every(question => question.interactionType === 'math_tokens'));
 });
 
+test('keeps all five algebra questions aligned with their own guidance', () => {
+  const questions = fallbackLesson({ sourceText: 'hằng đẳng thức lớp 8', language: 'vi', subjectArea: 'mathematics', course: 'mathematics' }).questions;
+
+  assert.equal(questions.length, 5);
+  assert.deepEqual(questions.map(question => question.tutorSteps[0].title), [
+    'Xác định công thức',
+    'Nhận diện số hạng giữa',
+    'Tách ba phần',
+    'Nhận diện dạng',
+    'Thay giá trị',
+  ]);
+  assert.equal(questions[4].tutorSteps[2].title, 'Kết luận');
+  assert.match(questions[4].tutorSteps[2].explanation, /Bình phương/);
+  assert.match(questions[3].tutorSteps[0].analysis, /tương đương/);
+  assert.match(questions[4].tutorSteps[0].analysis, /a = 1/);
+  assert.ok(questions.every(question => question.tutorSteps.every(step => step.analysis && step.easierExample?.prompt)));
+});
+
 test('adds analysis and an easier example to algebra guidance', () => {
   const question = fallbackLesson({ sourceText: 'hằng đẳng thức lớp 8', language: 'vi', subjectArea: 'mathematics', course: 'mathematics' }).questions[0];
 

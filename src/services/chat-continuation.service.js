@@ -1,7 +1,7 @@
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
-const { buildContinuePrompt, buildSystemInstruction, filterInternalPrompt } = require('./prompt.service');
+const { buildContinuePrompt, buildCurrentQuestionReminder, buildSystemInstruction, filterInternalPrompt } = require('./prompt.service');
 
-const getContinuation = async (history, language = 'en', educationLevel, subjectArea, promptOverride = null) => {
+const getContinuation = async (history, language = 'en', educationLevel, subjectArea, course = null, promptOverride = null) => {
   try {
     // Filter history to only include roles that Gemini API accepts: user, model, function, system
     const geminiHistory = history
@@ -16,9 +16,13 @@ const getContinuation = async (history, language = 'en', educationLevel, subject
     console.log('Original history length:', history.length);
     console.log('Filtered history for Gemini:', geminiHistory.length);
 
-    const systemInstruction = buildSystemInstruction(language, educationLevel, subjectArea);
+    const systemInstruction = buildSystemInstruction(language, educationLevel, subjectArea, course);
     const chat = startChat(geminiHistory, systemInstruction);
-    const prompt = promptOverride || buildContinuePrompt(language, educationLevel, subjectArea);
+    const prompt = `${promptOverride || buildContinuePrompt(language, educationLevel, subjectArea, course)}${buildCurrentQuestionReminder(history, language, course)}${educationLevel === 'middle'
+      ? language === 'vi'
+        ? '\nChỉ trả lời tối đa 4 câu ngắn, nêu đúng 1 gợi ý và không mở rộng sang nội dung ngoài đề.'
+        : '\nReply in at most 4 short sentences, give exactly 1 hint, and do not expand beyond the problem.'
+      : ''}`;
 
     console.log('Getting continuation with prompt:', prompt);
 

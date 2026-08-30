@@ -4,7 +4,7 @@ const InterventionService = require('../src/services/intervention.service');
 const { parseCheckAnswerResponse, recordAnswerEvaluation } = require('../src/controllers/chat/check-answer.controller');
 const { getErrorDetails } = require('../src/controllers/chat/continue-chat.controller');
 const { shouldUpdateProblemContext } = require('../src/controllers/chat/image-chat.controller');
-const { buildCheckAnswerPrompt, normalizeMathAnswer } = require('../src/services/prompt.service');
+const { buildChatPrompt, buildCheckAnswerPrompt, buildSystemInstruction, normalizeMathAnswer } = require('../src/services/prompt.service');
 const { getProblemContext } = require('../src/services/chat-check.service');
 
 const createConversation = () => ({
@@ -181,6 +181,82 @@ test('unlocks the full answer through one alternate-view response after four hin
   assert.equal(conversation.interventionMetrics.hasWorkSinceFourthHint, true);
 });
 
+test('unlocks the full answer after a correct mini quiz at four hints', () => {
+  const conversation = createConversation();
+  conversation.interventionMetrics = {
+    rulesetVersion: 'v2',
+    hintRequests: 4,
+    activeGate: {
+      active: true,
+      type: 'full_answer_gate',
+      requiredAction: 'mini_quiz_or_reflection',
+      miniQuiz: {
+        question: 'Câu hỏi nhỏ',
+        options: [{ id: 'A', text: 'Đúng' }, { id: 'B', text: 'Sai' }],
+        correctOptionId: 'A',
+      },
+    },
+  };
+
+  const result = InterventionService.evaluateFullAnswerRequest(conversation, 'vi', {
+    type: 'quiz_choice',
+    value: 'A',
+  });
+
+  assert.equal(result.allowed, true);
+  assert.equal(conversation.interventionMetrics.hasMeaningfulAttempt, true);
+  assert.equal(conversation.interventionMetrics.activeGate.active, false);
+});
+
+test('does not reopen a full-answer gate after a correct quiz before four hints', () => {
+  const conversation = createConversation();
+  conversation.interventionMetrics = {
+    rulesetVersion: 'v2',
+    hintRequests: 3,
+    activeGate: {
+      active: true,
+      type: 'full_answer_gate',
+      requiredAction: 'mini_quiz_or_reflection',
+      miniQuiz: {
+        question: 'Câu hỏi nhỏ',
+        options: [{ id: 'A', text: 'Đúng' }, { id: 'B', text: 'Sai' }],
+        correctOptionId: 'A',
+      },
+    },
+  };
+
+  const result = InterventionService.evaluateFullAnswerRequest(conversation, 'vi', {
+    type: 'quiz_choice',
+    value: 'A',
+  });
+
+  assert.equal(result.allowed, false);
+  assert.equal(result.intervention.active, false);
+  assert.equal(result.intervention.miniQuiz, undefined);
+  assert.match(result.message, /đủ 4 gợi ý/);
+});
+
+test('keeps completed mini quizzes in history for future questions', () => {
+  const conversation = createConversation();
+  conversation.interventionMetrics = {
+    rulesetVersion: 'v2',
+    activeGate: {
+      active: true,
+      type: 'mini_quiz_gate',
+      requiredAction: 'mini_quiz_or_reflection',
+      miniQuiz: {
+        question: 'Câu hỏi đã dùng',
+        options: [{ id: 'A', text: 'Đúng' }, { id: 'B', text: 'Sai' }],
+        correctOptionId: 'A',
+      },
+    },
+  };
+
+  InterventionService.recordGateResponse(conversation, { type: 'quiz_choice', value: 'A' }, 'vi');
+
+  assert.equal(conversation.interventionMetrics.miniQuizHistory[0].question, 'Câu hỏi đã dùng');
+});
+
 test('provides a safe fallback for each blocker choice', () => {
   for (const value of ['understand_question', 'formula', 'start', 'calculation']) {
     const fallback = InterventionService.getBlockerSupportFallback({ type: 'blocker_choice', value }, 'vi');
@@ -225,6 +301,14 @@ test('normalizes common math operators before asking Gemini to grade', () => {
   assert.equal(normalized, 'y² - 3 × 2 × y + 3 ^ 2 = (y - 3) ^ 2');
   assert.match(buildCheckAnswerPrompt(answer, 'vi', 'middle', 'mathematics'), /3 × 2 × y/);
   assert.match(buildCheckAnswerPrompt(answer, 'vi', 'middle', 'mathematics'), /không ghép các thừa số/);
+});
+
+test('keeps direct middle-school math list requests in the selected context', () => {
+  const prompt = buildChatPrompt('hằng đẳng thức lớp 8', 'vi', 'middle', 'mathematics', 'mathematics');
+
+  assert.match(prompt, /liệt kê đủ các mục/);
+  assert.match(prompt, /liệt kê đủ các công thức/);
+  assert.match(buildSystemInstruction('vi', 'middle', 'mathematics', 'mathematics'), /trả lời đủ phần được hỏi/);
 });
 
 test('adds the current problem and its image to the answer-check context', () => {

@@ -111,22 +111,71 @@ const getSystemInstruction = (language = 'en', educationLevel = 'middle', subjec
 };
 
 const buildSystemInstruction = (language = 'en', educationLevel, subjectArea, course = null) => {
-  return getSystemInstruction(language, educationLevel, subjectArea, course);
+  const instruction = getSystemInstruction(language, educationLevel, subjectArea, course);
+  if (educationLevel !== 'middle') return instruction;
+
+  const isMathematics = subjectArea === 'mathematics' || course === 'mathematics';
+  const directRequestRule = isMathematics
+    ? language === 'vi'
+      ? ' Khi học sinh hỏi kiến thức trực tiếp hoặc yêu cầu liệt kê công thức, hãy trả lời đủ phần được hỏi; quy tắc không đưa lời giải hoàn chỉnh chỉ áp dụng khi đang giải một bài tập cụ thể.'
+      : ' When the student asks for factual knowledge or a list of formulas, provide the complete requested list; the no-complete-solution rule applies only when solving a specific exercise.'
+    : '';
+
+  return `${instruction}\n\n${language === 'vi'
+    ? 'QUY TẮC DÀNH CHO HỌC SINH CẤP 2: Trả lời ngắn, rõ, dùng từ dễ hiểu. Lượt chat thường tối đa 6 câu hoặc 8 dòng; lượt gợi ý tối đa 4 câu và chỉ nêu 1 bước tiếp theo; lượt kiểm tra chỉ nhận xét đúng/sai và 1 cách sửa. Không chào hỏi dài, không lặp lại đề, không tự đưa ví dụ liên môn hoặc kiến thức ngoài câu hỏi. Chỉ liên môn khi học sinh yêu cầu. Nếu là bài Toán, bám đúng biểu thức và khóa học đã chọn.'
+    : 'MIDDLE-SCHOOL RULES: Be short, clear, and easy to understand. A normal chat turn is at most 6 sentences or 8 lines; a hint is at most 4 sentences and gives only 1 next step; answer checks state correct/incorrect and 1 fix. Do not add long greetings, repeat the problem, or introduce unrelated subjects or cross-subject examples unless asked. For math, stay with the exact expression and selected course.'}${directRequestRule}`;
 };
 
 const buildChatPrompt = (message, language = 'en', educationLevel, subjectArea, course = null) => {
   const prompts = getPrompts(language, educationLevel, subjectArea, course);
-  return prompts.chat.replace('{{message}}', message);
+  const isMathematics = subjectArea === 'mathematics' || course === 'mathematics';
+  const concise = educationLevel === 'middle'
+    ? language === 'vi'
+      ? ' Chỉ trả lời 3-6 câu ngắn, đúng câu hỏi, không mở rộng sang môn khác nếu không được hỏi; riêng yêu cầu liệt kê công thức thì phải liệt kê đủ các công thức được hỏi.'
+      : ' Reply in 3-6 short sentences, answer only the question, and do not expand into other subjects unless asked; formula-list requests must include every requested formula.'
+    : '';
+  const directMathRequest = isMathematics
+    ? language === 'vi'
+      ? ' Nếu học sinh yêu cầu liệt kê tên hoặc công thức, đó là yêu cầu kiến thức trực tiếp chứ không phải yêu cầu gợi ý: hãy trả lời trực tiếp và liệt kê đủ các mục được hỏi; không thay bằng một ví dụ khác. Nếu học sinh yêu cầu giải bài, mới hướng dẫn từng bước theo đúng biểu thức trong đề và lịch sử hội thoại.'
+      : ' If the student asks to list names or formulas, that is a direct knowledge request rather than a hint request: answer directly and list every requested item; do not replace it with another example. If the student asks to solve a problem, guide step by step using the exact expression and conversation history.'
+    : '';
+  return `${prompts.chat.replace('{{message}}', message)}${directMathRequest}${concise}`;
 };
 
 const buildContinuePrompt = (language = 'en', educationLevel, subjectArea, course = null) => {
   const prompts = getPrompts(language, educationLevel, subjectArea, course);
-  return prompts.continue;
+  const concise = educationLevel === 'middle'
+    ? language === 'vi'
+      ? ' Chỉ đưa 1 gợi ý mới trong tối đa 4 câu ngắn, bám đúng đề và hỏi 1 câu nhỏ ở cuối.'
+      : ' Give only 1 new hint in at most 4 short sentences, stay with the problem, and ask 1 small question at the end.'
+    : '';
+  return `${prompts.continue}${concise}`;
 };
 
 const buildFullAnswerPrompt = (language = 'en', educationLevel, subjectArea, course = null) => {
   const prompts = getPrompts(language, educationLevel, subjectArea, course);
-  return prompts.fullAnswer;
+  const concise = educationLevel === 'middle'
+    ? language === 'vi'
+      ? ' Trình bày tối đa 6 bước đánh số, mỗi bước 1 câu ngắn; chỉ dùng kiến thức đúng môn và kết luận rõ.'
+      : ' Use at most 6 numbered steps, one short sentence per step; stay in the selected subject and state the conclusion clearly.'
+    : '';
+  return `${prompts.fullAnswer}${concise}`;
+};
+
+const buildCurrentQuestionReminder = (history = [], language = 'en', course = null, fullAnswer = false) => {
+  const currentQuestion = [...history].reverse()
+    .find(message => message.role === 'user')?.parts?.map(part => part.text || '').join('\n').trim();
+  if (!currentQuestion) return '';
+
+  const subjectReminder = course === 'mathematics'
+    ? language === 'vi'
+      ? ` Đây là câu hỏi Toán; ${fullAnswer ? 'chỉ dùng kiến thức Toán' : 'tuyệt đối không chuyển sang Vật lý, Hóa học hoặc Sinh học'}.`
+      : ` This is a mathematics question; ${fullAnswer ? 'use mathematics only' : 'do not switch to physics, chemistry, or biology'}.`
+    : '';
+  const label = fullAnswer
+    ? (language === 'vi' ? 'CÂU HỎI HIỆN TẠI CẦN TRẢ LỜI' : 'CURRENT QUESTION TO ANSWER')
+    : (language === 'vi' ? 'CÂU HỎI HIỆN TẠI CẦN BÁM SÁT' : 'CURRENT QUESTION TO STAY WITH');
+  return `\n${label}: "${currentQuestion}".${subjectReminder}`;
 };
 
 const normalizeMathAnswer = (answer) => String(answer || '')
@@ -141,13 +190,14 @@ const normalizeMathAnswer = (answer) => String(answer || '')
 const buildCheckAnswerPrompt = (userAnswer, language = 'en', educationLevel, subjectArea, course = null, problemContext = '') => {
   const prompts = getPrompts(language, educationLevel, subjectArea, course);
   const basePrompts = language === 'vi' ? viPrompts : enPrompts;
-  const answerForReview = subjectArea === 'mathematics' ? normalizeMathAnswer(userAnswer) : userAnswer;
+  const isMathematics = subjectArea === 'mathematics' || course === 'mathematics';
+  const answerForReview = isMathematics ? normalizeMathAnswer(userAnswer) : userAnswer;
   const formatInstruction = basePrompts.messages?.checkAnswerFormatInstruction || (
     language === 'vi'
       ? 'BẮT BUỘC: Bắt đầu bằng [ATTEMPT] hoặc [NOT_ATTEMPT], rồi [ĐÚNG], [SAI] hoặc [UNCERTAIN]. [ATTEMPT] chỉ dùng khi học sinh đã viết một bước làm liên quan. Chỉ dùng [SAI] khi đã kiểm tra chắc chắn; nếu ký hiệu hoặc dữ kiện chưa đủ rõ, dùng [UNCERTAIN] và hỏi đúng một điều cần làm rõ. Không đưa đáp án hoàn chỉnh.'
       : 'REQUIRED: Start with [ATTEMPT] or [NOT_ATTEMPT], then [CORRECT], [INCORRECT], or [UNCERTAIN]. Use [ATTEMPT] only for a relevant working step. Use [INCORRECT] only when certain; otherwise use [UNCERTAIN] and ask one clarification. Do not give the complete answer.'
   );
-  const mathInstruction = subjectArea === 'mathematics'
+  const mathInstruction = isMathematics
     ? (language === 'vi'
       ? 'BÀI TOÁN: Dấu × là phép nhân; tuyệt đối không ghép các thừa số thành chữ số mới. Đối chiếu câu trả lời với đề gốc và kiểm tra tương đương đại số (khai triển hoặc thay giá trị) trước khi kết luận. Câu trả lời có thể kết thúc bằng “đúng không?”; hãy chấm biểu thức, không chấm câu hỏi đó.'
       : 'MATH: × means multiplication; never concatenate factors into a new number. Compare the answer with the original problem and check algebraic equivalence by expansion or substitution before deciding. The student may end with “is this correct?”; grade the expression, not that question.')
@@ -158,7 +208,10 @@ const buildCheckAnswerPrompt = (userAnswer, language = 'en', educationLevel, sub
       : `ORIGINAL PROBLEM CONTEXT AND RELEVANT HINTS:\n${problemContext}`)
     : '';
 
-  return `${contextInstruction}\n${prompts.checkAnswer.replace('{{userAnswer}}', answerForReview)} ${mathInstruction} ${formatInstruction}`.trim();
+  const conciseInstruction = language === 'vi'
+    ? 'Chỉ trả lời ngắn gọn tối đa 4 câu, nêu đúng một nhận xét và một bước sửa/tiếp theo.'
+    : 'Reply briefly in at most 4 sentences with one finding and one fix/next step.';
+  return `${contextInstruction}\n${prompts.checkAnswer.replace('{{userAnswer}}', answerForReview)} ${mathInstruction} ${formatInstruction} ${conciseInstruction}`.trim();
 };
 
 // Helper function to filter out internal prompt text
@@ -246,6 +299,7 @@ module.exports = {
   buildChatPrompt,
   buildContinuePrompt,
   buildFullAnswerPrompt,
+  buildCurrentQuestionReminder,
   buildCheckAnswerPrompt,
   normalizeMathAnswer,
   filterInternalPrompt,

@@ -19,7 +19,7 @@ const getFullAnswer = async (req, res) => {
     const gateEvaluation = InterventionService.evaluateFullAnswerRequest(conversation, language, gateResponse);
 
     if (!gateEvaluation.allowed) {
-      if (gateEvaluation.intervention.requiredAction === 'mini_quiz_or_reflection') {
+      if (gateEvaluation.intervention.active) {
         const miniQuiz = await InterventionQuizService.ensureMiniQuizForGate(conversation, language);
         if (miniQuiz) {
           gateEvaluation.intervention.miniQuiz = miniQuiz;
@@ -51,7 +51,8 @@ const getFullAnswer = async (req, res) => {
       conversation.history,
       language,
       conversation.educationLevel,
-      conversation.subjectArea
+      conversation.subjectArea,
+      conversation.course
     );
     
     console.log(JSON.stringify({

@@ -41,7 +41,7 @@ const fallback = (language, questionId, message) => ({
   questionId: questionId || null,
 });
 
-const evaluateAnswer = async ({ conversation, answer = '', answerImageUrl = null, language = 'en' }) => {
+const evaluateAnswer = async ({ conversation, answer = '', answerImageUrl = null, language = 'en', course = null }) => {
   await ensureProblemContext(conversation, language);
   const context = conversation.problemContext || {};
   const question = getActiveQuestion(context);
@@ -56,10 +56,12 @@ const evaluateAnswer = async ({ conversation, answer = '', answerImageUrl = null
     .filter(Boolean);
   const prompt = `${language === 'vi' ? 'Bạn là evaluator chấm bài, không phải gia sư.' : 'You are a grading evaluator, not a tutor.'}
 ${language === 'vi' ? 'Chỉ trả JSON hợp lệ, không markdown.' : 'Return valid JSON only, no markdown.'}
+${language === 'vi' ? 'Phản hồi ngắn tối đa 3 câu, bám đúng câu học sinh đang làm, không lạc sang môn khác.' : 'Keep feedback to at most 3 short sentences, stay with the selected question, and do not drift into other subjects.'}
 ${language === 'vi' ? 'Chỉ kết luận correct/incorrect khi đủ chắc chắn; thiếu dữ kiện hoặc ký hiệu mơ hồ là uncertain.' : 'Use correct/incorrect only when certain; missing context or ambiguous notation is uncertain.'}
 ${language === 'vi' ? 'status phải khớp với feedback: nếu feedback nói bài đúng thì status là correct; nếu chưa chắc thì status là uncertain.' : 'status must agree with feedback: if feedback says the work is correct, status must be correct; use uncertain when unsure.'}
 ${language === 'vi' ? 'Bài làm có ý nghĩa là có phép tính, công thức, lập luận hoặc kết luận gắn với câu đang chấm.' : 'A meaningful attempt contains a calculation, formula, reasoning, or conclusion tied to the selected question.'}
 ${language === 'vi' ? 'Schema:' : 'Schema:'} {"status":"correct|incorrect|uncertain","feedback":"","evidence":"","isMeaningfulAttempt":true}
+${language === 'vi' ? 'Môn học:' : 'Subject:'} ${course || conversation.course || conversation.subjectArea || ''}
 ${language === 'vi' ? 'Ngữ cảnh đề:' : 'Problem context:'} ${JSON.stringify({ sourceText: context.sourceText, question })}
 ${language === 'vi' ? 'Các gợi ý liên quan:' : 'Relevant hints:'} ${relevantHints.join('\n') || '(none)'}
 ${language === 'vi' ? 'Câu trả lời/bài làm của học sinh:' : 'Student answer/work:'} ${answer || '(image only)'}`;

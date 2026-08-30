@@ -75,12 +75,12 @@ const publicLesson = (lesson, options = {}) => {
 const createLesson = async (req, res) => {
   try {
     const { sessionId, questionId, language = 'vi' } = req.body || {};
-    if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+    if (!sessionId) return res.status(400).json({ error: 'Vui lòng cung cấp mã phiên học.' });
     const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
-    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+    if (!conversation) return res.status(404).json({ error: 'Không tìm thấy cuộc trò chuyện.' });
     await ensureProblemContext(conversation, language);
     const selected = conversation.problemContext?.questions?.find(question => question.id === String(questionId || conversation.problemContext.activeQuestionId || '').toLowerCase()) || getActiveQuestion(conversation.problemContext);
-    if (!selected) return res.status(400).json({ error: 'No problem found in this chat' });
+    if (!selected) return res.status(400).json({ error: 'Không tìm thấy đề bài trong cuộc trò chuyện.' });
     const existing = await AiTutorLesson.findOne({ user: req.user._id, sessionId, sourceQuestionId: selected.id, completed: false }).sort({ updatedAt: -1 });
     // Reuse only lessons from the current generation; older lessons must be regenerated.
     if (isUsableLesson(existing)) {
@@ -102,14 +102,14 @@ const createLesson = async (req, res) => {
 
 const getLesson = async (req, res) => {
   const lesson = await AiTutorLesson.findOne({ lessonId: req.params.lessonId, user: req.user._id });
-  if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
+  if (!lesson) return res.status(404).json({ error: 'Không tìm thấy bài luyện.' });
   return res.json({ lesson: publicLesson(lesson) });
 };
 
 const previous = async (req, res) => {
   const lesson = await AiTutorLesson.findOne({ lessonId: req.params.lessonId, user: req.user._id });
-  if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
-  if (lesson.currentQuestionIndex <= 0) return res.status(400).json({ error: 'Already at first question' });
+  if (!lesson) return res.status(404).json({ error: 'Không tìm thấy bài luyện.' });
+  if (lesson.currentQuestionIndex <= 0) return res.status(400).json({ error: 'Đã ở câu hỏi đầu tiên.' });
   lesson.currentQuestionIndex -= 1;
   lesson.currentStepIndex = -1;
   lesson.completed = false;
@@ -142,14 +142,14 @@ const listLessons = async (req, res) => {
 const answer = async (req, res) => {
   const { questionId, optionId } = req.body || {};
   const lesson = await AiTutorLesson.findOne({ lessonId: req.params.lessonId, user: req.user._id }).select('+questions.correctOptionId');
-  if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
+  if (!lesson) return res.status(404).json({ error: 'Không tìm thấy bài luyện.' });
   const question = lesson.questions[lesson.currentQuestionIndex];
-  if (!question || question.id !== questionId) return res.status(400).json({ error: 'Question is not active' });
+  if (!question || question.id !== questionId) return res.status(400).json({ error: 'Câu hỏi hiện tại không hợp lệ.' });
   const correct = question.correctOptionId === optionId;
   const attempts = Array.isArray(lesson.attempts) ? lesson.attempts : [];
-  const alreadyRewarded = attempts.some(attempt => attempt.questionId === question.id && attempt.correct);
+  const alreadyRewarded = attempts.some(attempt => !attempt.stepId && attempt.questionId === question.id && attempt.correct);
   if (!Array.isArray(lesson.attempts)) lesson.attempts = [];
-  lesson.attempts.push({ questionId, optionId, correct, at: new Date() });
+  lesson.attempts.push({ questionId, optionId, correct, type: 'answer', at: new Date() });
   lesson.markModified('attempts');
   lesson.currentStepIndex = Math.max(lesson.currentStepIndex, 0);
   await lesson.save();
@@ -203,12 +203,15 @@ const answer = async (req, res) => {
 const completeStep = async (req, res) => {
   const { questionId, stepId, placements = {}, interactionAnswer = {} } = req.body || {};
   const lesson = await AiTutorLesson.findOne({ lessonId: req.params.lessonId, user: req.user._id }).select('+questions.correctOptionId');
-  if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
+  if (!lesson) return res.status(404).json({ error: 'Không tìm thấy bài luyện.' });
   const question = lesson.questions[lesson.currentQuestionIndex];
-  if (!question || question.id !== questionId) return res.status(400).json({ error: 'Question is not active' });
+  if (!question || question.id !== questionId) return res.status(400).json({ error: 'Câu hỏi hiện tại không hợp lệ.' });
   const attempts = Array.isArray(lesson.attempts) ? lesson.attempts : [];
   const canAdvanceAfterCorrectAnswer = interactionAnswer?.skip === true
-    && attempts.some(attempt => String(attempt.questionId) === String(question.id) && attempt.correct === true);
+    && interactionAnswer?.stepReview !== true
+    && attempts.some(attempt => !attempt.stepId
+      && String(attempt.questionId) === String(question.id)
+      && attempt.correct === true);
   if (canAdvanceAfterCorrectAnswer) {
     if (lesson.currentQuestionIndex >= lesson.questions.length - 1) {
       lesson.completed = true; lesson.completedAt = new Date();
@@ -217,11 +220,18 @@ const completeStep = async (req, res) => {
     }
     await lesson.save();
     const activeQuestion = lesson.questions[lesson.currentQuestionIndex];
-    const answered = lesson.attempts?.some(attempt => attempt.questionId === activeQuestion?.id);
+    const answered = lesson.attempts?.some(attempt => !attempt.stepId && attempt.questionId === activeQuestion?.id);
     return res.json({ correct: true, lesson: publicLesson(lesson, { revealCorrect: answered, unlockedStep: lesson.currentStepIndex }) });
   }
   const step = question.tutorSteps.find(item => item.id === stepId);
-  if (!step || question.tutorSteps[lesson.currentStepIndex]?.id !== stepId) return res.status(400).json({ error: 'Step is not active' });
+  if (!step || question.tutorSteps[lesson.currentStepIndex]?.id !== stepId) return res.status(400).json({ error: 'Bước hướng dẫn hiện tại không hợp lệ.' });
+  const isReviewedFailedStep = interactionAnswer?.stepReview === true
+    && attempts.some(attempt => String(attempt.questionId) === String(question.id)
+      && String(attempt.stepId) === String(stepId)
+      && attempt.correct === false);
+  if (interactionAnswer?.stepReview === true && !isReviewedFailedStep) {
+    return res.status(400).json({ error: 'Bước hướng dẫn chưa có câu trả lời sai để xem lại.' });
+  }
   const tokenValid = step.interaction ? true : step.blanks.every(blank => placements[blank.id] === blank.expectedTokenId);
   const interactionValid = step.interaction?.type === 'sort_sequence'
     ? JSON.stringify(interactionAnswer.order || []) === JSON.stringify([...step.interaction.items].sort((a, b) => a.order - b.order).map(item => item.id))
@@ -232,8 +242,23 @@ const completeStep = async (req, res) => {
         : step.interaction?.type === 'cloze'
           ? String(interactionAnswer.text || '').trim().toLowerCase() === step.interaction.answer
         : true;
-  const valid = tokenValid && interactionValid;
-  if (!valid) return res.status(400).json({ correct: false, error: step.interaction ? 'Câu trả lời chưa đúng, hãy thử lại.' : 'Hãy chọn đúng đáp án cho từng vị trí.', lesson: publicLesson(lesson, { revealCorrect: true, unlockedStep: lesson.currentStepIndex }) });
+  const valid = isReviewedFailedStep || (tokenValid && interactionValid);
+  if (!valid) {
+    if (!Array.isArray(lesson.attempts)) lesson.attempts = [];
+    lesson.attempts.push({ questionId, stepId, correct: false, type: 'step', at: new Date() });
+    lesson.markModified('attempts');
+    await lesson.save();
+    return res.status(400).json({
+    correct: false,
+    error: step.interaction ? 'Câu trả lời chưa đúng, hãy xem lại hướng dẫn.' : 'Câu trả lời chưa đúng. Đáp án đúng ở bên dưới.',
+    correctAnswer: step.interaction ? null : step.blanks.map(blank => ({
+      blankId: blank.id,
+      label: step.tokens.find(token => token.id === blank.expectedTokenId)?.label || 'Đáp án đúng',
+    })),
+    guidance: step.explanation,
+    lesson: publicLesson(lesson, { revealCorrect: true, unlockedStep: lesson.currentStepIndex }),
+    });
+  }
   lesson.currentStepIndex = Math.min(lesson.currentStepIndex + 1, question.tutorSteps.length - 1);
   if (lesson.currentStepIndex >= question.tutorSteps.length - 1 && lesson.currentQuestionIndex >= lesson.questions.length - 1) {
     lesson.completed = true; lesson.completedAt = new Date();
@@ -242,7 +267,7 @@ const completeStep = async (req, res) => {
   }
   await lesson.save();
   const activeQuestion = lesson.questions[lesson.currentQuestionIndex];
-  const answered = lesson.attempts?.some(attempt => attempt.questionId === activeQuestion?.id);
+  const answered = lesson.attempts?.some(attempt => !attempt.stepId && attempt.questionId === activeQuestion?.id);
   return res.json({ correct: true, lesson: publicLesson(lesson, { revealCorrect: answered, unlockedStep: lesson.currentStepIndex }) });
 };
 

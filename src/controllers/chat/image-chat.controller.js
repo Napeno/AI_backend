@@ -113,6 +113,7 @@ const handleImageChat = async (req, res) => {
       language,
       conversation.educationLevel,
       conversation.subjectArea,
+      conversation.course,
       imageFile ? { buffer: imageFile.buffer, mimetype: imageFile.mimetype } : null
     );
     console.log('Got AI response:', aiResponse?.substring(0, 100));

@@ -43,7 +43,7 @@ const appendImagePart = async (messageParts, imageUrl, label) => {
   }
 };
 
-const checkUserAnswer = async (history, userAnswer, language = 'en', educationLevel, subjectArea, imageUrl = null) => {
+const checkUserAnswer = async (history, userAnswer, language = 'en', educationLevel, subjectArea, imageUrl = null, course = null) => {
   try {
     // Filter history to only include roles that Gemini API accepts: user, model, function, system
     const geminiHistory = history
@@ -68,9 +68,9 @@ const checkUserAnswer = async (history, userAnswer, language = 'en', educationLe
     console.log('Filtered history for Gemini:', geminiHistory.length);
 
     const problemContext = getProblemContext(history);
-    const systemInstruction = buildSystemInstruction(language, educationLevel, subjectArea);
+    const systemInstruction = buildSystemInstruction(language, educationLevel, subjectArea, course);
     const chat = startChat(geminiHistory, systemInstruction);
-    const prompt = buildCheckAnswerPrompt(userAnswer, language, educationLevel, subjectArea, null, problemContext.text);
+    const prompt = buildCheckAnswerPrompt(userAnswer, language, educationLevel, subjectArea, course, problemContext.text);
 
     console.log('Checking user answer with prompt:', prompt);
 

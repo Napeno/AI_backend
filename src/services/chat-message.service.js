@@ -1,10 +1,10 @@
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
 const { buildChatPrompt, buildSystemInstruction, filterInternalPrompt } = require('./prompt.service');
 
-const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea, image = null) => {
+const sendMessage = async (history, message, language = 'en', educationLevel, subjectArea, course = null, image = null) => {
   try {
     // Build user prompt from the original user message and prompts
-    const userPrompt = buildChatPrompt(message, language, educationLevel, subjectArea);
+    const userPrompt = buildChatPrompt(message, language, educationLevel, subjectArea, course);
     console.log('Using user prompt:', userPrompt);
 
     // Filter out system prompts from existing history
@@ -36,7 +36,7 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
 
     // Start chat with the gemini-compatible history
     // Start chat with the gemini-compatible history and system instruction
-    const systemInstruction = buildSystemInstruction(language, educationLevel, subjectArea);
+    const systemInstruction = buildSystemInstruction(language, educationLevel, subjectArea, course);
     const chat = startChat(geminiHistory, systemInstruction);
 
     // Prepare message parts

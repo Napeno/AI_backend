@@ -119,8 +119,21 @@ const ensureMetrics = (conversation) => {
   metrics.lastRiskLevel ??= metrics.riskLevel;
   metrics.activeGate ??= { active: false };
   metrics.activeGate.active ??= false;
+  metrics.miniQuizHistory ??= [];
 
   return metrics;
+};
+
+const rememberMiniQuiz = (metrics, quiz) => {
+  if (!quiz?.question) return;
+  metrics.miniQuizHistory ??= [];
+  if (metrics.miniQuizHistory.some(item => item.question === quiz.question)) return;
+  metrics.miniQuizHistory = [...metrics.miniQuizHistory, {
+    question: quiz.question,
+    options: quiz.options || [],
+    correctOptionId: quiz.correctOptionId,
+    explanation: quiz.explanation || '',
+  }].slice(-20);
 };
 
 const toPlainMetrics = (metrics) => ({
@@ -448,6 +461,8 @@ const recordGateResponse = (conversation, gateResponse, language = 'en') => {
 
   const metrics = ensureMetrics(conversation);
 
+  rememberMiniQuiz(metrics, metrics.activeGate?.miniQuiz);
+
   if (validResponse.type === 'blocker_choice') {
     metrics.identifiedBlocker = true;
     metrics.lastBlocker = validResponse.value;
@@ -472,6 +487,14 @@ const recordGateResponse = (conversation, gateResponse, language = 'en') => {
         rejected: true,
         ...gatePayload,
       };
+    }
+
+    if (metrics.activeGate?.type === 'full_answer_gate') {
+      metrics.hasWorkSinceFourthHint = true;
+      metrics.hasAttemptedAnswer = true;
+      metrics.hasMeaningfulAttempt = true;
+      metrics.hasMeaningfulWorkSinceLastHint = true;
+      metrics.meaningfulAttempts += 1;
     }
   }
 
@@ -631,6 +654,22 @@ const evaluateFullAnswerRequest = (conversation, language = 'en', gateResponse =
   const canAccessFullAnswer = fullAnswerRequirements.hintsUsed >= MAX_EXTRA_HINTS && fullAnswerRequirements.hasMeaningfulAttempt;
 
   if (!canAccessFullAnswer) {
+    if (hasGateResponse) {
+      metrics.activeGate = { active: false };
+      markMetricsModified(conversation);
+      return {
+        allowed: false,
+        message: fullAnswerRequirements.hintsUsed < MAX_EXTRA_HINTS
+          ? (language === 'vi'
+            ? 'Em đã trả lời đúng câu hỏi nhỏ rồi. Hãy nhận đủ 4 gợi ý trước khi xem lời giải nhé.'
+            : 'You answered the mini-question correctly. Please use all 4 hints before viewing the solution.')
+          : (language === 'vi'
+            ? 'Em đã hoàn thành câu hỏi nhỏ. Giờ hãy gửi lời giải thích hoặc một bước em tự làm để mở lời giải nhé.'
+            : 'You completed the mini-question. Now send your reasoning or one step you tried to unlock the solution.'),
+        intervention: buildInactiveIntervention(conversation, language),
+      };
+    }
+
     metrics.activeGate = { active: false };
     markMetricsModified(conversation);
     return {
@@ -726,6 +765,8 @@ const setActiveGateMiniQuiz = (conversation, miniQuiz) => {
   if (!metrics.activeGate?.active) {
     return null;
   }
+
+  rememberMiniQuiz(metrics, metrics.activeGate.miniQuiz);
 
   metrics.activeGate.miniQuiz = {
     question: miniQuiz.question,

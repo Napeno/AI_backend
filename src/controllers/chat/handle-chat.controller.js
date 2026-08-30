@@ -55,7 +55,8 @@ const handleChat = async (req, res) => {
       message, 
       language,
       conversation.educationLevel,
-      conversation.subjectArea
+      conversation.subjectArea,
+      conversation.course
     );
     console.log('Got AI response:', aiResponse?.substring(0, 100));
     

@@ -52,6 +52,7 @@ const checkAnswer = async (req, res, imageData = null) => {
     answer: userAnswer || '',
     answerImageUrl,
     language,
+    course: conversation.course,
   });
   const isCorrect = evaluation.status === 'correct' ? true : evaluation.status === 'incorrect' ? false : null;
   let responseText = evaluation.feedback;

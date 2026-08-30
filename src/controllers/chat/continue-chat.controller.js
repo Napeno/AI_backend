@@ -32,7 +32,7 @@ const continueChat = async (req, res) => {
       : InterventionService.evaluateHintRequest(conversation, language, gateResponse);
 
     if (!gateEvaluation.allowed) {
-      if (gateEvaluation.intervention.requiredAction === 'mini_quiz_or_reflection') {
+      if (gateEvaluation.intervention.active) {
         const miniQuiz = await InterventionQuizService.ensureMiniQuizForGate(conversation, language);
         if (miniQuiz) {
           gateEvaluation.intervention.miniQuiz = miniQuiz;
@@ -70,6 +70,7 @@ const continueChat = async (req, res) => {
         language,
         conversation.educationLevel,
         conversation.subjectArea,
+        conversation.course,
         isSupportChoice ? blockerSupportPrompt : foundationReviewPrompt || blockerSupportPrompt
       );
     } catch (error) {

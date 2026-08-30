@@ -41,44 +41,70 @@ const mathTokenStep = (id, title, explanation, blankLabel, expectedTokenId, toke
   blanks: [{ id: `${id}-blank`, label: blankLabel, expectedTokenId }],
   tokens: tokens.map(([tokenId, label, type = 'text']) => ({ id: tokenId, label, type })),
 });
-const algebraTutorSteps = data => [
-  mathTokenStep(
-    's1',
-    'Xác định công thức',
-    `Đề bài yêu cầu khai triển ${data.expression}. Hãy chọn đúng công thức bình phương một tổng/hiệu.`,
-    'Công thức',
-    'square-formula',
-    [['square-formula', '(a ± b)² = a² ± 2ab + b²'], ['wrong-formula', 'a² ± b²'], ['linear-formula', 'a ± b']],
-  ),
-  mathTokenStep(
-    's2',
-    'Tính số hạng giữa',
-    `Trong ${data.expression}, số hạng giữa là 2 × ${data.constant} × ${data.variable}.`,
-    'Số hạng giữa',
-    'middle-term',
-    [['middle-term', data.middle, 'variable'], ['wrong-middle', `${data.constant}${data.variable}`, 'variable'], ['constant-term', String(data.constant ** 2), 'number']],
-  ),
-  mathTokenStep(
-    's3',
-    'Kết luận',
-    `Ghép ba phần của hằng đẳng thức để thu được kết quả khai triển của ${data.expression}.`,
-    'Kết quả',
-    'expanded-result',
-    [['expanded-result', data.result, 'variable'], ['wrong-result', `${data.variable}² + ${data.constant}${data.variable} + ${data.constant}`, 'variable'], ['constant-only', String(data.constant ** 2), 'number']],
-  ),
-].map((step, index) => ({
+const decorateAlgebraSteps = (steps, focus) => steps.map((step, index) => ({
   ...step,
-  analysis: index === 0
-    ? `Phân tích ${data.expression}: nhận diện dạng bình phương một tổng/hiệu trước khi thay số.`
-    : index === 1
-      ? `Phân tích ${data.expression}: số hạng giữa được tính bằng 2 × ${data.constant} × ${data.variable}.`
-      : `Phân tích ${data.expression}: ghép bình phương thứ nhất, số hạng giữa và bình phương thứ hai để kiểm tra kết quả.`,
-  easierExample: index === 0
-    ? { prompt: 'Ví dụ dễ hơn: với (a + 1)², công thức vẫn là (a + b)² = a² + 2ab + b².', answer: '(a + b)² = a² + 2ab + b²', hint: 'Chỉ cần nhận diện số hạng a và 1.' }
-    : index === 1
-      ? { prompt: 'Ví dụ dễ hơn: số hạng giữa của (a + 1)² là 2 × 1 × a = 2a.', answer: '2a', hint: 'Lấy 2 nhân phần biến nhân phần số.' }
-      : { prompt: 'Ví dụ dễ hơn: (a + 1)² = a² + 2a + 1.', answer: 'a² + 2a + 1', hint: 'Ghép đủ ba phần theo đúng thứ tự.' },
+  analysis: focus[index]?.analysis || step.analysis,
+  easierExample: focus[index]?.easierExample || step.easierExample,
 }));
+const algebraTutorSteps = (data, questionIndex = 0) => {
+  const common = [
+    mathTokenStep('s1', 'Xác định công thức', `Đề bài yêu cầu khai triển ${data.expression}. Hãy chọn đúng công thức bình phương một tổng/hiệu.`, 'Công thức', 'square-formula', [['square-formula', '(a ± b)² = a² ± 2ab + b²'], ['wrong-formula', 'a² ± b²'], ['linear-formula', 'a ± b']]),
+    mathTokenStep('s2', 'Tính số hạng giữa', `Trong ${data.expression}, số hạng giữa là 2 × ${data.constant} × ${data.variable}.`, 'Số hạng giữa', 'middle-term', [['middle-term', data.middle, 'variable'], ['wrong-middle', `${data.constant}${data.variable}`, 'variable'], ['constant-term', String(data.constant ** 2), 'number']]),
+    mathTokenStep('s3', 'Kết luận', `Ghép ba phần của hằng đẳng thức để thu được kết quả khai triển của ${data.expression}.`, 'Kết quả', 'expanded-result', [['expanded-result', data.result, 'variable'], ['wrong-result', `${data.variable}² + ${data.constant}${data.variable} + ${data.constant}`, 'variable'], ['constant-only', String(data.constant ** 2), 'number']]),
+  ];
+  const variants = [
+    common,
+    [
+      mathTokenStep('s1', 'Nhận diện số hạng giữa', `Câu hỏi yêu cầu tìm số hạng giữa của ${data.expression}, tức phần 2ab trong công thức.`, 'Phần cần tìm', 'middle-term', [['middle-term', '2ab', 'variable'], ['square-formula', 'a² + b²', 'text'], ['constant-term', 'b²', 'variable']]),
+      mathTokenStep('s2', 'Thay dữ kiện', `Thay a = ${data.variable} và b = ${data.constant} vào 2ab để được 2 × ${data.constant} × ${data.variable}.`, 'Biểu thức thay vào', 'middle-term', [['middle-term', data.middle, 'variable'], ['wrong-middle', `${data.constant}${data.variable}`, 'variable'], ['constant-term', String(data.constant ** 2), 'number']]),
+      mathTokenStep('s3', 'Kiểm tra', `Đối chiếu ${data.middle} với số hạng giữa trong kết quả của ${data.expression}.`, 'Số hạng giữa', 'middle-term', [['middle-term', data.middle, 'variable'], ['expanded-result', data.result, 'variable'], ['constant-term', String(data.constant ** 2), 'number']]),
+    ],
+    [
+      mathTokenStep('s1', 'Tách ba phần', `Kết quả của ${data.expression} gồm bình phương thứ nhất, số hạng giữa ${data.middle} và bình phương thứ hai ${data.constant ** 2}.`, 'Phần cần ghép', 'expanded-result', [['expanded-result', data.result, 'variable'], ['middle-term', data.middle, 'variable'], ['constant-term', String(data.constant ** 2), 'number']]),
+      mathTokenStep('s2', 'Ghép số hạng giữa', `Đặt đúng số hạng giữa ${data.middle} vào giữa ${data.variable}² và ${data.constant ** 2}.`, 'Số hạng giữa', 'middle-term', [['middle-term', data.middle, 'variable'], ['expanded-result', data.result, 'variable'], ['constant-term', String(data.constant ** 2), 'number']]),
+      mathTokenStep('s3', 'Ghép kết quả', `Ghép đủ ba phần để được ${data.result}.`, 'Kết quả khai triển', 'expanded-result', [['expanded-result', data.result, 'variable'], ['wrong-result', `${data.variable}² + ${data.constant}${data.variable} + ${data.constant}`, 'variable'], ['constant-only', String(data.constant ** 2), 'number']]),
+    ],
+    [
+      mathTokenStep('s1', 'Nhận diện dạng', `${data.expression} có dạng bình phương một tổng/hiệu nên dùng công thức (a ± b)².`, 'Dạng biểu thức', 'square-formula', [['square-formula', '(a ± b)²'], ['wrong-formula', 'a² ± b²'], ['linear-formula', 'a ± b']]),
+      mathTokenStep('s2', 'Ghép các phần', `Với ${data.expression}, ghép bình phương thứ nhất, ${data.middle} và ${data.constant ** 2}.`, 'Ba phần kết quả', 'expanded-result', [['expanded-result', data.result, 'variable'], ['middle-term', data.middle, 'variable'], ['constant-term', String(data.constant ** 2), 'number']]),
+      mathTokenStep('s3', 'Chọn biểu thức tương đương', `Chọn biểu thức đúng và tương đương với kết quả khai triển của ${data.expression}.`, 'Biểu thức tương đương', 'expanded-result', [['expanded-result', data.result, 'variable'], ['wrong-result', `${data.variable}² + ${data.constant}${data.variable} + ${data.constant}`, 'variable'], ['constant-only', String(data.constant ** 2), 'number']]),
+    ],
+    [
+      mathTokenStep('s1', 'Thay giá trị', `Câu hỏi cho ${data.variable} = 1 trong ${data.expression}. Hãy thay giá trị vào biểu thức.`, 'Giá trị thay vào', 'substitution', [['substitution', '1', 'number'], ['wrong-value', '0', 'number'], ['constant-term', String(data.constant), 'number']]),
+      mathTokenStep('s2', 'Tính trong ngoặc', `Tính 1 ${data.sign} ${data.constant} trước khi bình phương.`, 'Kết quả trong ngoặc', 'inside-value', [['inside-value', String(1 + (data.sign === '-' ? -data.constant : data.constant)), 'number'], ['wrong-value', String(data.constant), 'number'], ['substitution', '1', 'number']]),
+      mathTokenStep('s3', 'Kết luận', `Bình phương kết quả trong ngoặc để tìm giá trị của ${data.expression}.`, 'Giá trị cuối cùng', 'final-value', [['final-value', String((1 + (data.sign === '-' ? -data.constant : data.constant)) ** 2), 'number'], ['inside-value', String(1 + (data.sign === '-' ? -data.constant : data.constant)), 'number'], ['constant-term', String(data.constant ** 2), 'number']]),
+    ],
+  ];
+  const selected = variants[questionIndex] || common;
+  const focus = [
+    [
+      { analysis: `Phân tích ${data.expression}: nhận diện đây là bình phương một tổng/hiệu.`, easierExample: { prompt: 'Ví dụ dễ hơn: với (a + 1)², dùng (a + b)² = a² + 2ab + b².', answer: '(a + b)² = a² + 2ab + b²', hint: 'Nhận diện dạng trước khi thay số.' } },
+      { analysis: `Từ công thức của ${data.expression}, số hạng giữa là 2 × ${data.constant} × ${data.variable}.`, easierExample: { prompt: 'Ví dụ dễ hơn: số hạng giữa của (a + 1)² là 2 × 1 × a = 2a.', answer: '2a', hint: 'Lấy 2 nhân biến nhân số.' } },
+      { analysis: `Ghép đủ ba phần của ${data.expression} để có kết quả cuối cùng.`, easierExample: { prompt: 'Ví dụ dễ hơn: (a + 1)² = a² + 2a + 1.', answer: 'a² + 2a + 1', hint: 'Ghép theo thứ tự bình phương, số hạng giữa, hằng số.' } },
+    ],
+    [
+      { analysis: `Tập trung vào phần 2ab trong ${data.expression}.`, easierExample: { prompt: 'Ví dụ dễ hơn: trong (a + 1)², phần giữa là 2ab.', answer: '2ab', hint: 'Tìm phần nằm giữa hai bình phương.' } },
+      { analysis: `Thay đúng biến và số của ${data.expression} vào 2ab.`, easierExample: { prompt: 'Ví dụ dễ hơn: 2 × 1 × a = 2a.', answer: '2a', hint: 'Thay số 1 vào vị trí b.' } },
+      { analysis: `Kiểm tra kết quả bằng cách tìm đúng ${data.middle} trong biểu thức đã khai triển.`, easierExample: { prompt: 'Ví dụ dễ hơn: trong a² + 2a + 1, số hạng giữa là 2a.', answer: '2a', hint: 'Đọc số hạng ở giữa.' } },
+    ],
+    [
+      { analysis: `Xác định công thức phù hợp cho ${data.expression}.`, easierExample: { prompt: 'Ví dụ dễ hơn: (a + 1)² có dạng bình phương một tổng.', answer: '(a + b)²', hint: 'Nhìn số mũ 2 ngoài ngoặc.' } },
+      { analysis: `Tính lần lượt hai bình phương và số hạng giữa của ${data.expression}.`, easierExample: { prompt: 'Ví dụ dễ hơn: a² + 2a + 1 gồm ba phần.', answer: 'a² + 2a + 1', hint: 'Không bỏ sót phần nào.' } },
+      { analysis: `Chọn kết quả chứa đúng biến, số hạng ${data.middle} và hằng số ${data.constant ** 2}.`, easierExample: { prompt: 'Ví dụ dễ hơn: kết quả của (a + 1)² là a² + 2a + 1.', answer: 'a² + 2a + 1', hint: 'Đối chiếu đủ ba phần.' } },
+    ],
+    [
+      { analysis: `Phân tích câu hỏi: biểu thức tương đương với ${data.expression} phải giữ đúng dạng bình phương một tổng/hiệu.`, easierExample: { prompt: 'Ví dụ dễ hơn: biểu thức tương đương với (a + 1)² phải có dạng (a + 1)².', answer: '(a + 1)²', hint: 'Giữ nguyên hai phần trong ngoặc và số mũ 2.' } },
+      { analysis: `Đối chiếu ${data.expression} với ba phần của công thức: bình phương thứ nhất, số hạng giữa và bình phương thứ hai.`, easierExample: { prompt: 'Ví dụ dễ hơn: (a + 1)² có ba phần a², 2a và 1.', answer: 'a² + 2a + 1', hint: 'Không bỏ sót số hạng giữa.' } },
+      { analysis: `Chọn biểu thức đúng và tương đương với ${data.expression}, không chọn từng phần riêng lẻ.`, easierExample: { prompt: 'Ví dụ dễ hơn: (a + 1)² tương đương với a² + 2a + 1.', answer: 'a² + 2a + 1', hint: 'So sánh toàn bộ biểu thức.' } },
+    ],
+    [
+      { analysis: `Thay ${data.variable} = 1 vào ${data.expression} trước khi tính.`, easierExample: { prompt: 'Ví dụ dễ hơn: với a = 1, (a + 1)² trở thành (1 + 1)².', answer: '(1 + 1)²', hint: 'Thay giá trị vào biến.' } },
+      { analysis: `Tính phần trong ngoặc trước: 1 ${data.sign} ${data.constant}.`, easierExample: { prompt: 'Ví dụ dễ hơn: (1 + 1) = 2.', answer: '2', hint: 'Tính trong ngoặc trước.' } },
+      { analysis: `Bình phương kết quả trong ngoặc để ra đáp số của ${data.expression}.`, easierExample: { prompt: 'Ví dụ dễ hơn: 2² = 4.', answer: '4', hint: 'Nhân số đó với chính nó.' } },
+    ],
+  ][questionIndex] || [];
+  return decorateAlgebraSteps(selected, focus);
+};
 const algebraQuestion = (data, index, language = 'vi') => {
   const tasks = language === 'vi'
     ? [
@@ -103,7 +129,7 @@ const algebraQuestion = (data, index, language = 'vi') => {
     interactionType: 'math_tokens',
     options: optionTexts.map((optionText, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text: optionText })),
     correctOptionId: 'A',
-    tutorSteps: algebraTutorSteps(data),
+    tutorSteps: algebraTutorSteps(data, index),
   };
 };
 const sanitizeSvg = value => String(value || '')
@@ -194,7 +220,7 @@ const fallbackLesson = ({ sourceText = '', sourceExpression = '', questionId = '
         { id: 'D', text: language === 'vi' ? 'Một nội dung không liên quan đến đề' : 'Content unrelated to the problem' },
       ],
       correctOptionId: 'A',
-      tutorSteps: algebra ? algebraTutorSteps(algebra) : genericTutorSteps({ sourceText, sourceOption, language }),
+      tutorSteps: algebra ? algebraTutorSteps(algebra, index) : genericTutorSteps({ sourceText, sourceOption, language }),
     };
   });
   return { sourceQuestionId: questionId, sourceText, questions };
