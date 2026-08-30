@@ -29,20 +29,30 @@ const fallbackLesson = ({ sourceText = '', questionId = 'main', language = 'vi',
   const prompts = language === 'vi'
     ? ['Đề bài cho biết dữ kiện nào?', 'Em cần tìm đại lượng hoặc ý chính nào?', 'Công thức/khái niệm nào phù hợp?', 'Bước tính hoặc lập luận tiếp theo là gì?', 'Kết quả cuối cùng nên được kiểm tra ra sao?']
     : ['What information does the problem give?', 'What quantity or main idea must you find?', 'Which formula or concept applies?', 'What calculation or reasoning comes next?', 'How should you check the final result?'];
+  const algebra = /hằng đẳng thức|hang dang thuc|\(a\s*[+-]/i.test(sourceText);
+  const fallbackTasks = algebra && language === 'vi'
+    ? [
+      ['Khai triển (a + 2)² bằng hằng đẳng thức nào?', ['a² + 4a + 4', 'a² + 2a + 4', 'a² + 4', '2a² + 4']],
+      ['Hệ số của a trong (a + 2)² là bao nhiêu?', ['2', '4', '1', '8']],
+      ['Khai triển (a − 3)² cho kết quả nào?', ['a² − 6a + 9', 'a² − 3a + 9', 'a² + 6a + 9', 'a² − 9']],
+      ['Biểu thức nào là hiệu hai bình phương?', ['a² − 9', 'a² + 9', '(a + 3)²', '3a²']],
+      ['Với a = 5, giá trị (a + 2)² bằng bao nhiêu?', ['49', '25', '14', '35']],
+    ]
+    : null;
   const questions = Array.from({ length: 5 }, (_, index) => ({
     id: `q${index + 1}`,
     title: language === 'vi' ? `Tách dữ kiện · Câu ${index + 1}` : `Identify the given data · Question ${index + 1}`,
-    prompt: sourceText ? `${sourceText}\n\n${prompts[index]}` : prompts[index],
+    prompt: sourceText ? `${sourceText}\n\n${fallbackTasks?.[index]?.[0] || prompts[index]}` : prompts[index],
     // The normal path asks Gemini for an illustration; this fallback remains usable offline.
-    visual: { kind: 'fallback', spec: { label: language === 'vi' ? 'Bài học từ Chat' : 'Lesson from Chat' } },
+    visual: { kind: 'fallback', spec: { label: language === 'vi' ? 'Bài tập liên quan đề gốc' : 'Related practice' } },
     interactionType,
-    options: [
+    options: fallbackTasks?.[index]?.[1].map((text, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text })) || [
       { id: 'A', text: language === 'vi' ? 'Đọc và gạch chân dữ kiện' : 'Read and underline the data' },
       { id: 'B', text: language === 'vi' ? 'Chọn ngẫu nhiên một đáp án' : 'Pick an answer randomly' },
       { id: 'C', text: language === 'vi' ? 'Bỏ qua câu hỏi' : 'Skip the question' },
       { id: 'D', text: language === 'vi' ? 'Xin đáp án ngay' : 'Ask for the answer immediately' },
     ],
-    correctOptionId: 'A',
+    correctOptionId: algebra && index === 1 ? 'B' : 'A',
     tutorSteps: [{ id: 's1', title: language === 'vi' ? 'Bước 1 · Xác định dữ kiện' : 'Step 1 · Find the data', explanation: language === 'vi' ? 'Hãy chọn dữ kiện quan trọng nhất trong đề.' : 'Choose the most important data in the problem.', blanks: [{ id: 'b1', label: 'Dữ kiện', expectedTokenId: 't1' }], tokens: [{ id: 't1', label: language === 'vi' ? 'Dữ kiện đề bài' : 'Given data', type: 'text' }, { id: 't2', label: '+', type: 'operator' }, { id: 't3', label: '?', type: 'text' }] }],
   }));
   return { sourceQuestionId: questionId, sourceText, questions };
@@ -83,7 +93,7 @@ const normalizeQuestion = (raw, index, sourceText, language, context = {}) => {
   const visualSpec = raw?.visual?.kind === 'svg' && raw.visual.spec && typeof raw.visual.spec === 'object'
     ? { ...raw.visual.spec, svg: sanitizeSvg(raw.visual.spec.svg) }
     : null;
-  return { id: id(raw?.id) || `q${index + 1}`, title: text(raw?.title, fallback.title, 120), prompt: text(raw?.prompt, sourceText || fallback.prompt, 900), visual: visualSpec?.svg ? { kind: 'svg', spec: visualSpec } : { kind: 'fallback', spec: { label: text(raw?.visual?.spec?.label, 'Minh họa bài toán', 80) } }, interactionType: interactionTypes.includes(raw?.interactionType) ? raw.interactionType : 'generic_tokens', options: options.length === 4 ? options : fallback.options, correctOptionId: validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A', tutorSteps: steps.length ? steps : fallback.tutorSteps };
+  return { id: id(raw?.id) || `q${index + 1}`, title: text(raw?.title, fallback.title, 120), prompt: text(raw?.prompt, sourceText || fallback.prompt, 900), visual: visualSpec?.svg ? { kind: 'svg', spec: visualSpec } : { kind: 'fallback', spec: { label: text(raw?.visual?.spec?.label, 'Bài tập liên quan đề gốc', 80) } }, interactionType: interactionTypes.includes(raw?.interactionType) ? raw.interactionType : 'generic_tokens', options: options.length === 4 ? options : fallback.options, correctOptionId: validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A', tutorSteps: steps.length ? steps : fallback.tutorSteps };
 };
 
 const sanitizeLesson = (raw, context = {}) => {

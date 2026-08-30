@@ -11,7 +11,8 @@ const publicInteraction = interaction => {
   if (interaction.type === 'cloze') return { type: interaction.type, prompt: interaction.prompt };
   return null;
 };
-const publicStep = (step, reveal = false) => ({ id: step.id, title: step.title, explanation: reveal ? step.explanation : '', blanks: reveal ? step.blanks.map(blank => ({ id: blank.id, label: blank.label })) : [], tokens: reveal ? step.tokens : [], interaction: reveal ? publicInteraction(step.interaction) : null });
+// Guidance text is safe to show immediately; answer tokens/interactions stay gated.
+const publicStep = (step, reveal = false) => ({ id: step.id, title: step.title, explanation: step.explanation, blanks: reveal ? step.blanks.map(blank => ({ id: blank.id, label: blank.label })) : [], tokens: reveal ? step.tokens : [], interaction: reveal ? publicInteraction(step.interaction) : null });
 const publicQuestion = (question, { revealCorrect = false, unlockedStep = -1 } = {}) => ({ id: question.id, title: question.title, prompt: question.prompt, visual: question.visual, interactionType: question.interactionType, options: question.options, tutorSteps: question.tutorSteps.map((step, index) => publicStep(step, index <= unlockedStep)), ...(revealCorrect ? { correctOptionId: question.correctOptionId } : {}) });
 const publicLesson = (lesson, options) => ({ lessonId: lesson.lessonId, sessionId: lesson.sessionId, sourceQuestionId: lesson.sourceQuestionId, sourceText: lesson.sourceText, sourceImage: lesson.sourceImage, currentQuestionIndex: lesson.currentQuestionIndex, currentStepIndex: lesson.currentStepIndex, completed: lesson.completed, question: publicQuestion(lesson.questions[lesson.currentQuestionIndex], { unlockedStep: lesson.currentStepIndex, ...options }) });
 
@@ -27,7 +28,7 @@ const createLesson = async (req, res) => {
     const existing = await AiTutorLesson.findOne({ user: req.user._id, sessionId, sourceQuestionId: selected.id, completed: false }).sort({ updatedAt: -1 });
     if (existing) return res.json({ lesson: publicLesson(existing) });
     const lessonData = await generateLesson({ language, questionId: selected.id, sourceText: selected.prompt || conversation.problemContext.sourceText, sourceImage: conversation.problemContext.sourceImage, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel });
-    const lesson = await AiTutorLesson.create({ ...lessonData, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel, lessonId: makeLessonId(), user: req.user._id, sessionId, sourceQuestionId: selected.id });
+    const lesson = await AiTutorLesson.create({ ...lessonData, currentStepIndex: 0, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel, lessonId: makeLessonId(), user: req.user._id, sessionId, sourceQuestionId: selected.id });
     return res.status(201).json({ lesson: publicLesson(lesson) });
   } catch (error) {
     console.error('AI tutor lesson create error:', error.message);
@@ -71,13 +72,13 @@ const completeStep = async (req, res) => {
         : step.interaction?.type === 'cloze'
           ? String(interactionAnswer.text || '').trim().toLowerCase() === step.interaction.answer
         : true;
-  const valid = tokenValid && interactionValid;
+  const valid = interactionAnswer?.skip === true || (tokenValid && interactionValid);
   if (!valid) return res.status(400).json({ correct: false, error: step.interaction ? 'Câu trả lời chưa đúng, hãy thử lại.' : 'Hãy đặt đúng token vào từng ô trống.', lesson: publicLesson(lesson, { revealCorrect: true, unlockedStep: lesson.currentStepIndex }) });
   lesson.currentStepIndex = Math.min(lesson.currentStepIndex + 1, question.tutorSteps.length - 1);
   if (lesson.currentStepIndex >= question.tutorSteps.length - 1 && lesson.currentQuestionIndex >= lesson.questions.length - 1) {
     lesson.completed = true; lesson.completedAt = new Date();
   } else if (lesson.currentStepIndex >= question.tutorSteps.length - 1) {
-    lesson.currentQuestionIndex += 1; lesson.currentStepIndex = -1;
+    lesson.currentQuestionIndex += 1; lesson.currentStepIndex = 0;
   }
   await lesson.save();
   return res.json({ correct: true, lesson: publicLesson(lesson) });
