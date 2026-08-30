@@ -4,6 +4,7 @@ const controller = require('../controllers/ai-tutor.controller');
 
 const router = express.Router();
 router.post('/lessons', auth, controller.createLesson);
+router.get('/lessons', auth, controller.listLessons);
 router.get('/lessons/:lessonId', auth, controller.getLesson);
 router.post('/lessons/:lessonId/answer', auth, controller.answer);
 router.post('/lessons/:lessonId/step', auth, controller.completeStep);
