@@ -26,7 +26,11 @@ const createLesson = async (req, res) => {
     const selected = conversation.problemContext?.questions?.find(question => question.id === String(questionId || conversation.problemContext.activeQuestionId || '').toLowerCase()) || getActiveQuestion(conversation.problemContext);
     if (!selected) return res.status(400).json({ error: 'No problem found in this chat' });
     const existing = await AiTutorLesson.findOne({ user: req.user._id, sessionId, sourceQuestionId: selected.id, completed: false }).sort({ updatedAt: -1 });
-    if (existing) return res.json({ lesson: publicLesson(existing) });
+    if (existing?.questions.length === 5) {
+      if (existing.currentStepIndex < 0) { existing.currentStepIndex = 0; await existing.save(); }
+      return res.json({ lesson: publicLesson(existing) });
+    }
+    if (existing) await existing.deleteOne();
     const lessonData = await generateLesson({ language, questionId: selected.id, sourceText: selected.prompt || conversation.problemContext.sourceText, sourceImage: conversation.problemContext.sourceImage, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel });
     const lesson = await AiTutorLesson.create({ ...lessonData, currentStepIndex: 0, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel, lessonId: makeLessonId(), user: req.user._id, sessionId, sourceQuestionId: selected.id });
     return res.status(201).json({ lesson: publicLesson(lesson) });
