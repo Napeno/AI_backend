@@ -19,14 +19,18 @@ const interactionFor = ({ subjectArea = '', course = '' } = {}) => {
   return 'generic_tokens';
 };
 
-const fallbackLesson = ({ sourceText = '', questionId = 'main', language = 'vi', subjectArea = '', course = '' } = {}) => ({
-  sourceQuestionId: questionId,
-  sourceText,
-  questions: [{
-    id: 'q1', title: language === 'vi' ? 'Tách dữ kiện từ đề bài' : 'Identify the given data',
-    prompt: sourceText || (language === 'vi' ? 'Đâu là cách bắt đầu phù hợp nhất với đề bài?' : 'What is the best first step?'),
+const fallbackLesson = ({ sourceText = '', questionId = 'main', language = 'vi', subjectArea = '', course = '' } = {}) => {
+  const interactionType = interactionFor({ subjectArea, course });
+  const prompts = language === 'vi'
+    ? ['Đề bài cho biết dữ kiện nào?', 'Em cần tìm đại lượng hoặc ý chính nào?', 'Công thức/khái niệm nào phù hợp?', 'Bước tính hoặc lập luận tiếp theo là gì?', 'Kết quả cuối cùng nên được kiểm tra ra sao?']
+    : ['What information does the problem give?', 'What quantity or main idea must you find?', 'Which formula or concept applies?', 'What calculation or reasoning comes next?', 'How should you check the final result?'];
+  const questions = Array.from({ length: 5 }, (_, index) => ({
+    id: `q${index + 1}`,
+    title: language === 'vi' ? `Tách dữ kiện · Câu ${index + 1}` : `Identify the given data · Question ${index + 1}`,
+    prompt: sourceText ? `${sourceText}\n\n${prompts[index]}` : prompts[index],
+    // The normal path asks Gemini for an illustration; this fallback remains usable offline.
     visual: { kind: 'fallback', spec: { label: language === 'vi' ? 'Bài học từ Chat' : 'Lesson from Chat' } },
-    interactionType: interactionFor({ subjectArea, course }),
+    interactionType,
     options: [
       { id: 'A', text: language === 'vi' ? 'Đọc và gạch chân dữ kiện' : 'Read and underline the data' },
       { id: 'B', text: language === 'vi' ? 'Chọn ngẫu nhiên một đáp án' : 'Pick an answer randomly' },
@@ -35,8 +39,9 @@ const fallbackLesson = ({ sourceText = '', questionId = 'main', language = 'vi',
     ],
     correctOptionId: 'A',
     tutorSteps: [{ id: 's1', title: language === 'vi' ? 'Bước 1 · Xác định dữ kiện' : 'Step 1 · Find the data', explanation: language === 'vi' ? 'Hãy chọn dữ kiện quan trọng nhất trong đề.' : 'Choose the most important data in the problem.', blanks: [{ id: 'b1', label: 'Dữ kiện', expectedTokenId: 't1' }], tokens: [{ id: 't1', label: language === 'vi' ? 'Dữ kiện đề bài' : 'Given data', type: 'text' }, { id: 't2', label: '+', type: 'operator' }, { id: 't3', label: '?', type: 'text' }] }],
-  }],
-});
+  }));
+  return { sourceQuestionId: questionId, sourceText, questions };
+};
 
 const normalizeStep = (raw, index, fallback) => {
   const tokens = Array.isArray(raw?.tokens) ? raw.tokens.slice(0, 12).map((token, tokenIndex) => ({ id: id(token?.id) || `t${index + 1}_${tokenIndex + 1}`, label: text(token?.label, '?', 30), type: ['number', 'operator', 'variable', 'text'].includes(token?.type) ? token.type : 'text' })) : fallback.tokens;
@@ -70,19 +75,24 @@ const normalizeQuestion = (raw, index, sourceText, language, context = {}) => {
     }
   });
   const interactionTypes = ['math_tokens', 'label_diagram', 'sort_sequence', 'match_pairs', 'cloze', 'evidence_choice', 'cause_effect', 'generic_tokens'];
-  return { id: id(raw?.id) || `q${index + 1}`, title: text(raw?.title, fallback.title, 120), prompt: text(raw?.prompt, sourceText || fallback.prompt, 900), visual: raw?.visual?.kind === 'svg' ? { kind: 'svg', spec: raw.visual.spec || {} } : { kind: 'fallback', spec: { label: text(raw?.visual?.spec?.label, 'Minh họa bài toán', 80) } }, interactionType: interactionTypes.includes(raw?.interactionType) ? raw.interactionType : 'generic_tokens', options: options.length === 4 ? options : fallback.options, correctOptionId: validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A', tutorSteps: steps.length ? steps : fallback.tutorSteps };
+  const visualSpec = raw?.visual?.kind === 'svg' && raw.visual.spec && typeof raw.visual.spec === 'object'
+    ? { ...raw.visual.spec, svg: String(raw.visual.spec.svg || '').replace(/<script[\s\S]*?<\/script>/gi, '').slice(0, 12000) }
+    : null;
+  return { id: id(raw?.id) || `q${index + 1}`, title: text(raw?.title, fallback.title, 120), prompt: text(raw?.prompt, sourceText || fallback.prompt, 900), visual: visualSpec?.svg ? { kind: 'svg', spec: visualSpec } : { kind: 'fallback', spec: { label: text(raw?.visual?.spec?.label, 'Minh họa bài toán', 80) } }, interactionType: interactionTypes.includes(raw?.interactionType) ? raw.interactionType : 'generic_tokens', options: options.length === 4 ? options : fallback.options, correctOptionId: validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A', tutorSteps: steps.length ? steps : fallback.tutorSteps };
 };
 
 const sanitizeLesson = (raw, context = {}) => {
   const fallback = fallbackLesson(context);
-  const questions = Array.isArray(raw?.questions) ? raw.questions.slice(0, 3).map((question, index) => normalizeQuestion(question, index, context.sourceText, context.language, context)).filter(question => question.options.length === 4) : fallback.questions;
-  return { sourceQuestionId: context.questionId || fallback.sourceQuestionId, sourceText: context.sourceText || '', sourceImage: context.sourceImage || null, questions: questions.length ? questions : fallback.questions };
+  const questions = Array.isArray(raw?.questions) ? raw.questions.slice(0, 5).map((question, index) => normalizeQuestion(question, index, context.sourceText, context.language, context)).filter(question => question.options.length === 4) : [];
+  // Gemini occasionally returns fewer items; pad so every lesson always has five steps/questions.
+  while (questions.length < 5) questions.push(fallback.questions[questions.length]);
+  return { sourceQuestionId: context.questionId || fallback.sourceQuestionId, sourceText: context.sourceText || '', sourceImage: context.sourceImage || null, questions };
 };
 
 const generateLesson = async (context = {}) => {
   const fallback = fallbackLesson(context);
   try {
-    const prompt = `Tạo mini-lesson tối đa 3 câu dựa CHỈ trên bài học sau. Không đổi dữ kiện. Ngôn ngữ: ${context.language || 'vi'}. Cấp học: ${context.educationLevel || 'middle'}. Nhóm môn: ${context.subjectArea || 'natural_sciences'}. Môn: ${context.course || ''}. Bài học: ${context.sourceText || '(xem ảnh đính kèm)'}. Chọn interactionType phù hợp: math_tokens (Toán/Lý/Hóa tính toán), label_diagram (KHTN), sort_sequence (quy trình/timeline), match_pairs (Anh/khái niệm), cloze (điền từ), evidence_choice (Văn/KHXH), cause_effect (nguyên nhân-kết quả). Trả JSON duy nhất: {"questions":[{"id":"q1","title":"","prompt":"","visual":{"kind":"svg|fallback","spec":{}},"interactionType":"math_tokens|label_diagram|sort_sequence|match_pairs|cloze|evidence_choice|cause_effect","options":[{"id":"A","text":""},{"id":"B","text":""},{"id":"C","text":""},{"id":"D","text":""}],"correctOptionId":"A","tutorSteps":[{"id":"s1","title":"","explanation":"","blanks":[{"id":"b1","label":"","expectedTokenId":"t1"}],"tokens":[{"id":"t1","label":"","type":"number|operator|variable|text"}],"interaction":{"type":"sort_sequence|match_pairs|label_diagram|cause_effect|evidence_choice|cloze","items":[{"id":"i1","text":"","order":1}],"pairs":[{"id":"p1","left":"","right":""}],"choices":[{"id":"c1","text":"","correct":true}],"prompt":"","answer":""}}]}]}. Với sort_sequence/match_pairs/label_diagram/cause_effect/evidence_choice/cloze, điền interaction và bỏ blanks/tokens nếu không phù hợp. Không HTML, không thương hiệu.`;
+    const prompt = `Tạo mini-lesson LIÊN TỤC ĐÚNG 5 CÂU dựa CHỈ trên bài học sau. Không đổi dữ kiện. Ngôn ngữ: ${context.language || 'vi'}. Cấp học: ${context.educationLevel || 'middle'}. Nhóm môn: ${context.subjectArea || 'natural_sciences'}. Môn: ${context.course || ''}. Bài học: ${context.sourceText || '(xem ảnh đính kèm)'}. Mỗi câu phải có nội dung/bối cảnh hoặc bước suy luận khác nhau, tăng dần độ khó. Hãy tạo minh họa trực quan cho từng câu bằng Gemini: visual.kind phải là "svg" và visual.spec chứa SVG inline đơn giản (chỉ thẻ hình cơ bản, không script/HTML/external URL) phù hợp với đề. Chọn interactionType phù hợp: math_tokens (Toán/Lý/Hóa tính toán), label_diagram (KHTN), sort_sequence (quy trình/timeline), match_pairs (Anh/khái niệm), cloze (điền từ), evidence_choice (Văn/KHXH), cause_effect (nguyên nhân-kết quả). Trả JSON duy nhất: {"questions":[{"id":"q1","title":"","prompt":"","visual":{"kind":"svg","spec":{"svg":"<svg ...>...</svg>"}},"interactionType":"math_tokens|label_diagram|sort_sequence|match_pairs|cloze|evidence_choice|cause_effect","options":[{"id":"A","text":""},{"id":"B","text":""},{"id":"C","text":""},{"id":"D","text":""}],"correctOptionId":"A","tutorSteps":[{"id":"s1","title":"","explanation":"","blanks":[{"id":"b1","label":"","expectedTokenId":"t1"}],"tokens":[{"id":"t1","label":"","type":"number|operator|variable|text"}],"interaction":{"type":"sort_sequence|match_pairs|label_diagram|cause_effect|evidence_choice|cloze","items":[{"id":"i1","text":"","order":1}],"pairs":[{"id":"p1","left":"","right":""}],"choices":[{"id":"c1","text":"","correct":true}],"prompt":"","answer":""}}]}]}. Với sort_sequence/match_pairs/label_diagram/cause_effect/evidence_choice/cloze, điền interaction và bỏ blanks/tokens nếu không phù hợp. Không HTML, không thương hiệu.`;
     const chat = startChat([], 'Bạn là AI Tutor. Chỉ trả JSON hợp lệ, trung thành với đề bài.');
     const parts = [{ text: prompt }];
     if (context.sourceImage?.url) {
