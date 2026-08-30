@@ -13,6 +13,7 @@ const text = (value, fallback, max = 500) => String(value || fallback).replace(/
 const id = value => String(value || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 32);
 const sanitizeSvg = value => String(value || '')
   .replace(/<script[\s\S]*?<\/script>/gi, '')
+  .replace(/<(?:foreignObject|iframe|object|embed)[\s\S]*?<\/\s*(?:foreignObject|iframe|object|embed)>/gi, '')
   .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
   .replace(/\s(?:href|xlink:href)\s*=\s*["'](?:https?:|data:text\/html|javascript:)[^"']*["']/gi, '')
   .slice(0, 12000);
