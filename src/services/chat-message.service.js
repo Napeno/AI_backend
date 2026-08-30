@@ -17,7 +17,7 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
     // Further filter to only include roles that Gemini API accepts
     const geminiHistory = cleanHistory
       .filter(msg =>
-        msg.role === 'user' || msg.role === 'model' || msg.role === 'function' || msg.role === 'system'
+        msg.role === 'user' || msg.role === 'model'
       )
       .map(msg => {
         // We will pass the history as is, assuming it's in the correct format
@@ -27,6 +27,9 @@ const sendMessage = async (history, message, language = 'en', educationLevel, su
           parts: msg.parts.map(part => ({ text: part.text })) // Assuming history parts are text for now
         };
       });
+
+    // Gemini requires history to begin with a user turn.
+    while (geminiHistory[0]?.role !== 'user') geminiHistory.shift();
 
     console.log('Clean history length:', cleanHistory.length);
     console.log('Gemini history length:', geminiHistory.length);
