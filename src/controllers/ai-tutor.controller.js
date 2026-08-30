@@ -26,7 +26,8 @@ const createLesson = async (req, res) => {
     const selected = conversation.problemContext?.questions?.find(question => question.id === String(questionId || conversation.problemContext.activeQuestionId || '').toLowerCase()) || getActiveQuestion(conversation.problemContext);
     if (!selected) return res.status(400).json({ error: 'No problem found in this chat' });
     const existing = await AiTutorLesson.findOne({ user: req.user._id, sessionId, sourceQuestionId: selected.id, completed: false }).sort({ updatedAt: -1 });
-    if (existing?.questions.length === 5) {
+    // Reuse only complete Gemini lessons; old fallback lessons must be regenerated.
+    if (existing?.questions.length === 5 && existing.questions.every(item => item.visual?.kind === 'svg' && item.visual?.spec?.svg)) {
       if (existing.currentStepIndex < 0) { existing.currentStepIndex = 0; await existing.save(); }
       return res.json({ lesson: publicLesson(existing) });
     }
@@ -44,6 +45,27 @@ const getLesson = async (req, res) => {
   const lesson = await AiTutorLesson.findOne({ lessonId: req.params.lessonId, user: req.user._id });
   if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
   return res.json({ lesson: publicLesson(lesson) });
+};
+
+const listLessons = async (req, res) => {
+  const lessons = await AiTutorLesson.find({ user: req.user._id })
+    .sort({ updatedAt: -1 })
+    .select('lessonId sessionId sourceQuestionId sourceText subjectArea course educationLevel completed currentQuestionIndex questions createdAt updatedAt')
+    .lean();
+  return res.json({ lessons: lessons.map(lesson => ({
+    lessonId: lesson.lessonId,
+    sessionId: lesson.sessionId,
+    sourceQuestionId: lesson.sourceQuestionId,
+    sourceText: lesson.sourceText,
+    subjectArea: lesson.subjectArea,
+    course: lesson.course,
+    educationLevel: lesson.educationLevel,
+    completed: lesson.completed,
+    questionCount: lesson.questions?.length || 0,
+    currentQuestionIndex: lesson.currentQuestionIndex || 0,
+    createdAt: lesson.createdAt,
+    updatedAt: lesson.updatedAt
+  })) });
 };
 
 const answer = async (req, res) => {
@@ -100,4 +122,4 @@ const generate = async (req, res) => {
 };
 const legacyAnswer = async (req, res) => res.status(410).json({ error: 'Hãy mở AI Tutor từ một bài trong Chat.' });
 
-module.exports = { createLesson, getLesson, answer, completeStep, analytics, generate, answerLegacy: legacyAnswer };
+module.exports = { createLesson, getLesson, listLessons, answer, completeStep, analytics, generate, answerLegacy: legacyAnswer };
