@@ -91,10 +91,11 @@ const normalizeQuestion = (raw, index, sourceText, language, context = {}) => {
     }
   });
   const interactionTypes = ['math_tokens', 'label_diagram', 'sort_sequence', 'match_pairs', 'cloze', 'evidence_choice', 'cause_effect', 'generic_tokens'];
+  const resolvedInteractionType = interactionTypes.includes(raw?.interactionType) && raw.interactionType !== 'generic_tokens' ? raw.interactionType : interactionFor(context);
   const visualSpec = raw?.visual?.kind === 'svg' && raw.visual.spec && typeof raw.visual.spec === 'object'
     ? { ...raw.visual.spec, svg: sanitizeSvg(raw.visual.spec.svg) }
     : null;
-  const interactionType = interactionTypes.includes(raw?.interactionType) ? raw.interactionType : 'generic_tokens';
+  const interactionType = resolvedInteractionType;
   const visual = interactionType === 'math_tokens' ? { kind: 'none' } : visualSpec?.svg ? { kind: 'svg', spec: visualSpec } : { kind: 'none' };
   return { id: id(raw?.id) || `q${index + 1}`, title: text(raw?.title, fallback.title, 120), prompt: text(raw?.prompt, sourceText || fallback.prompt, 900), visual, interactionType, options: options.length === 4 ? options : fallback.options, correctOptionId: validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A', tutorSteps: steps.length ? steps : fallback.tutorSteps };
 };
