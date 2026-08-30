@@ -47,6 +47,18 @@ const getLesson = async (req, res) => {
   return res.json({ lesson: publicLesson(lesson) });
 };
 
+const previous = async (req, res) => {
+  const lesson = await AiTutorLesson.findOne({ lessonId: req.params.lessonId, user: req.user._id });
+  if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
+  if (lesson.currentQuestionIndex <= 0) return res.status(400).json({ error: 'Already at first question' });
+  lesson.currentQuestionIndex -= 1;
+  lesson.currentStepIndex = -1;
+  lesson.completed = false;
+  lesson.completedAt = undefined;
+  await lesson.save();
+  return res.json({ lesson: publicLesson(lesson) });
+};
+
 const listLessons = async (req, res) => {
   const lessons = await AiTutorLesson.find({ user: req.user._id })
     .sort({ updatedAt: -1 })
@@ -122,4 +134,4 @@ const generate = async (req, res) => {
 };
 const legacyAnswer = async (req, res) => res.status(410).json({ error: 'Hãy mở AI Tutor từ một bài trong Chat.' });
 
-module.exports = { createLesson, getLesson, listLessons, answer, completeStep, analytics, generate, answerLegacy: legacyAnswer };
+module.exports = { createLesson, getLesson, previous, listLessons, answer, completeStep, analytics, generate, answerLegacy: legacyAnswer };
