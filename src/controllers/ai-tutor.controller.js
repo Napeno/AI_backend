@@ -28,12 +28,12 @@ const createLesson = async (req, res) => {
     const existing = await AiTutorLesson.findOne({ user: req.user._id, sessionId, sourceQuestionId: selected.id, completed: false }).sort({ updatedAt: -1 });
     // Reuse only complete Gemini lessons; old fallback lessons must be regenerated.
     if (existing?.generationVersion === 2 && existing.questions.length === 5) {
-      if (existing.currentStepIndex < 0) { existing.currentStepIndex = 0; await existing.save(); }
+      if (!existing.attempts?.length && existing.currentStepIndex !== -1) { existing.currentStepIndex = -1; await existing.save(); }
       return res.json({ lesson: publicLesson(existing) });
     }
     if (existing) await existing.deleteOne();
     const lessonData = await generateLesson({ language, questionId: selected.id, sourceText: selected.prompt || conversation.problemContext.sourceText, sourceImage: conversation.problemContext.sourceImage, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel });
-    const lesson = await AiTutorLesson.create({ ...lessonData, generationVersion: 2, currentStepIndex: 0, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel, lessonId: makeLessonId(), user: req.user._id, sessionId, sourceQuestionId: selected.id });
+    const lesson = await AiTutorLesson.create({ ...lessonData, generationVersion: 2, currentStepIndex: -1, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel, lessonId: makeLessonId(), user: req.user._id, sessionId, sourceQuestionId: selected.id });
     return res.status(201).json({ lesson: publicLesson(lesson) });
   } catch (error) {
     console.error('AI tutor lesson create error:', error.message);
