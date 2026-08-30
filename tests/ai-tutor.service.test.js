@@ -28,7 +28,7 @@ test('has a usable visual-question fallback when generation is unavailable', () 
 
 test('keeps lesson answers and drag tokens in a bounded, server-checkable shape', () => {
   const lesson = sanitizeLesson({ questions: [{ options: [{ id: 'A', text: 'Đúng' }, { id: 'B', text: 'Sai' }, { id: 'C', text: 'Sai' }, { id: 'D', text: 'Sai' }], correctOptionId: 'A', tutorSteps: [{ blanks: [{ id: 'b', label: 'Ô', expectedTokenId: 'good' }], tokens: [{ id: 'good', label: '2', type: 'number' }] }] }] }, { sourceText: '2 + 2 = ?', questionId: 'main' });
-  assert.equal(lesson.questions.length, 1);
+  assert.equal(lesson.questions.length, 5);
   assert.equal(lesson.questions[0].options.length, 4);
   assert.equal(lesson.questions[0].tutorSteps[0].blanks[0].expectedTokenId, 'good');
   assert.equal(fallbackLesson().questions[0].options.length, 4);
@@ -45,4 +45,10 @@ test('always gives every supported learning mode a usable continuation interacti
     const lesson = sanitizeLesson({ questions: [{ interactionType, options: [{ id: 'A', text: 'Đúng' }, { id: 'B', text: 'Sai' }, { id: 'C', text: 'Sai' }, { id: 'D', text: 'Sai' }], correctOptionId: 'A', tutorSteps: [{ title: 'Bước', explanation: 'Giải thích' }] }] }, { sourceText: 'Bài test' });
     assert.ok(lesson.questions[0].tutorSteps[0].interaction, interactionType);
   });
+});
+
+test('keeps Gemini SVG visuals while stripping executable content', () => {
+  const lesson = sanitizeLesson({ questions: [{ visual: { kind: 'svg', spec: { svg: '<svg><rect /></svg><script>alert(1)</script>' } }, options: [{ id: 'A', text: 'Đúng' }, { id: 'B', text: 'Sai' }, { id: 'C', text: 'Sai' }, { id: 'D', text: 'Sai' }], correctOptionId: 'A', tutorSteps: [{ title: 'Bước', explanation: 'Giải thích' }] }] }, { sourceText: 'Bài test' });
+  assert.equal(lesson.questions[0].visual.kind, 'svg');
+  assert.doesNotMatch(lesson.questions[0].visual.spec.svg, /script/i);
 });
