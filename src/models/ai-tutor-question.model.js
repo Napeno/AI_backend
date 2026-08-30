@@ -30,7 +30,7 @@ const tutorQuestionSchema = new mongoose.Schema({
   id: { type: String, required: true },
   title: { type: String, required: true },
   prompt: { type: String, required: true },
-  visual: { type: mongoose.Schema.Types.Mixed, default: { kind: 'fallback' } },
+  visual: { type: mongoose.Schema.Types.Mixed, default: { kind: 'none' } },
   interactionType: { type: String, enum: ['math_tokens', 'label_diagram', 'sort_sequence', 'match_pairs', 'cloze', 'evidence_choice', 'cause_effect', 'generic_tokens'], default: 'generic_tokens' },
   options: { type: [optionSchema], required: true },
   correctOptionId: { type: String, required: true, select: false },
@@ -39,7 +39,7 @@ const tutorQuestionSchema = new mongoose.Schema({
 
 const aiTutorLessonSchema = new mongoose.Schema({
   lessonId: { type: String, required: true, unique: true },
-  generationVersion: { type: Number, default: 2 },
+  generationVersion: { type: Number, default: 3 },
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sessionId: { type: String, required: true },
   sourceQuestionId: { type: String, required: true },

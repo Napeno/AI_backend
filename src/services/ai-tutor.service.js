@@ -11,6 +11,7 @@ const parseJson = text => {
 
 const text = (value, fallback, max = 500) => String(value || fallback).replace(/<[^>]*>/g, '').trim().slice(0, max) || fallback;
 const id = value => String(value || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 32);
+const isMathCourse = ({ subjectArea = '', course = '' } = {}) => subjectArea === 'mathematics' || ['mathematics', 'physics', 'chemistry'].includes(course);
 const sanitizeSvg = value => String(value || '')
   .replace(/<script[\s\S]*?<\/script>/gi, '')
   .replace(/<(?:foreignObject|iframe|object|embed)[\s\S]*?<\/\s*(?:foreignObject|iframe|object|embed)>/gi, '')
@@ -18,10 +19,10 @@ const sanitizeSvg = value => String(value || '')
   .replace(/\s(?:href|xlink:href)\s*=\s*["'](?:https?:|data:text\/html|javascript:)[^"']*["']/gi, '')
   .slice(0, 12000);
 const interactionFor = ({ subjectArea = '', course = '' } = {}) => {
+  if (isMathCourse({ subjectArea, course })) return 'math_tokens';
   if (course === 'english_language' || course === 'foreign_language') return 'cloze';
   if (subjectArea === 'social_sciences' || ['literature', 'history', 'geography', 'civics'].includes(course)) return 'evidence_choice';
-  if (subjectArea === 'natural_sciences' && course !== 'mathematics') return 'label_diagram';
-  if (['mathematics', 'physics', 'chemistry'].includes(course) || subjectArea === 'mathematics') return 'math_tokens';
+  if (subjectArea === 'natural_sciences') return 'label_diagram';
   return 'generic_tokens';
 };
 
@@ -44,8 +45,8 @@ const fallbackLesson = ({ sourceText = '', questionId = 'main', language = 'vi',
     id: `q${index + 1}`,
     title: language === 'vi' ? `Tách dữ kiện · Câu ${index + 1}` : `Identify the given data · Question ${index + 1}`,
     prompt: sourceText ? `${sourceText}\n\n${fallbackTasks?.[index]?.[0] || prompts[index]}` : prompts[index],
-    // The normal path asks Gemini for an illustration; this fallback remains usable offline.
-    visual: { kind: 'fallback', spec: { label: language === 'vi' ? 'Bài tập liên quan đề gốc' : 'Related practice' } },
+    // Keep offline fallback text-only; visuals are accepted only from Gemini.
+    visual: { kind: 'none' },
     interactionType,
     options: fallbackTasks?.[index]?.[1].map((text, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text })) || [
       { id: 'A', text: language === 'vi' ? 'Đọc và gạch chân dữ kiện' : 'Read and underline the data' },
@@ -81,22 +82,30 @@ const normalizeQuestion = (raw, index, sourceText, language, context = {}) => {
   const options = Array.isArray(raw?.options) ? raw.options.slice(0, 4).map((option, optionIndex) => ({ id: String(option?.id || String.fromCharCode(65 + optionIndex)).slice(0, 2), text: text(option?.text, fallback.options[optionIndex]?.text || 'Lựa chọn', 180) })) : fallback.options;
   const validIds = new Set(options.map(option => option.id));
   const steps = Array.isArray(raw?.tutorSteps) ? raw.tutorSteps.slice(0, 4).map((step, stepIndex) => normalizeStep(step, stepIndex, fallback.tutorSteps[0])).filter(Boolean) : fallback.tutorSteps;
+  const mathSubject = isMathCourse(context);
   steps.forEach(step => {
-    if (!step.interaction && raw?.interactionType === 'cloze') step.interaction = { type: 'cloze', prompt: step.explanation || 'Điền từ còn thiếu.', answer: '' };
-    if (!step.interaction && raw?.interactionType === 'sort_sequence') step.interaction = { type: 'sort_sequence', items: [{ id: 'i1', text: 'Bước đầu', order: 1 }, { id: 'i2', text: 'Bước tiếp theo', order: 2 }, { id: 'i3', text: 'Kết luận', order: 3 }] };
-    if (!step.interaction && ['match_pairs', 'label_diagram', 'cause_effect'].includes(raw?.interactionType)) step.interaction = { type: raw.interactionType, pairs: [{ id: 'p1', left: 'Nội dung chính', right: 'Ghép đúng' }] };
-    if (!step.interaction && raw?.interactionType === 'evidence_choice') step.interaction = { type: 'evidence_choice', prompt: step.explanation || 'Chọn bằng chứng phù hợp.', choices: [{ id: 'c1', text: 'Bằng chứng trực tiếp từ đề bài.', correct: true }, { id: 'c2', text: 'Thông tin không xuất hiện trong đề.', correct: false }] };
+    if (mathSubject) {
+      step.interaction = null;
+      if (!step.blanks.length || !step.tokens.length) {
+        step.blanks = fallback.tutorSteps[0].blanks;
+        step.tokens = fallback.tutorSteps[0].tokens;
+      }
+    }
+    if (!mathSubject && !step.interaction && raw?.interactionType === 'cloze') step.interaction = { type: 'cloze', prompt: step.explanation || 'Điền từ còn thiếu.', answer: '' };
+    if (!mathSubject && !step.interaction && raw?.interactionType === 'sort_sequence') step.interaction = { type: 'sort_sequence', items: [{ id: 'i1', text: 'Bước đầu', order: 1 }, { id: 'i2', text: 'Bước tiếp theo', order: 2 }, { id: 'i3', text: 'Kết luận', order: 3 }] };
+    if (!mathSubject && !step.interaction && ['match_pairs', 'label_diagram', 'cause_effect'].includes(raw?.interactionType)) step.interaction = { type: raw.interactionType, pairs: [{ id: 'p1', left: 'Nội dung chính', right: 'Ghép đúng' }] };
+    if (!mathSubject && !step.interaction && raw?.interactionType === 'evidence_choice') step.interaction = { type: 'evidence_choice', prompt: step.explanation || 'Chọn bằng chứng phù hợp.', choices: [{ id: 'c1', text: 'Bằng chứng trực tiếp từ đề bài.', correct: true }, { id: 'c2', text: 'Thông tin không xuất hiện trong đề.', correct: false }] };
     if (step.interaction?.type === 'cloze' && !step.interaction.answer) {
       step.interaction.answer = String(options.find(option => option.id === (validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A'))?.text || '').trim().toLowerCase();
     }
   });
   const interactionTypes = ['math_tokens', 'label_diagram', 'sort_sequence', 'match_pairs', 'cloze', 'evidence_choice', 'cause_effect', 'generic_tokens'];
-  const resolvedInteractionType = interactionTypes.includes(raw?.interactionType) && raw.interactionType !== 'generic_tokens' ? raw.interactionType : interactionFor(context);
+  const resolvedInteractionType = mathSubject ? 'math_tokens' : interactionTypes.includes(raw?.interactionType) && raw.interactionType !== 'generic_tokens' ? raw.interactionType : interactionFor(context);
   const visualSpec = raw?.visual?.kind === 'svg' && raw.visual.spec && typeof raw.visual.spec === 'object'
     ? { ...raw.visual.spec, svg: sanitizeSvg(raw.visual.spec.svg) }
     : null;
   const interactionType = resolvedInteractionType;
-  const visual = interactionType === 'math_tokens' ? { kind: 'none' } : visualSpec?.svg ? { kind: 'svg', spec: visualSpec } : { kind: 'none' };
+  const visual = mathSubject || interactionType === 'math_tokens' ? { kind: 'none' } : visualSpec?.svg ? { kind: 'svg', spec: visualSpec } : { kind: 'none' };
   return { id: id(raw?.id) || `q${index + 1}`, title: text(raw?.title, fallback.title, 120), prompt: text(raw?.prompt, sourceText || fallback.prompt, 900), visual, interactionType, options: options.length === 4 ? options : fallback.options, correctOptionId: validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A', tutorSteps: steps.length ? steps : fallback.tutorSteps };
 };
 
@@ -119,6 +128,9 @@ const generateLesson = async (context = {}) => {
       if (imageResponse.ok) parts.push({ inlineData: { mimeType: imageResponse.headers.get('content-type') || 'image/jpeg', data: Buffer.from(await imageResponse.arrayBuffer()).toString('base64') } });
     }
     const raw = parseJson(extractResponseText(await makeRequestWithRetry(() => chat.sendMessage(parts))));
+    if (!Array.isArray(raw?.questions) || raw.questions.length !== 5 || raw.questions.some(question => !Array.isArray(question?.options) || question.options.length !== 4)) {
+      throw new Error('Gemini returned an incomplete five-question lesson');
+    }
     return sanitizeLesson(raw, context);
   } catch (error) {
     console.error('AI tutor lesson generation failed:', error.message);

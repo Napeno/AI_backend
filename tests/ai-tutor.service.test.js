@@ -52,3 +52,19 @@ test('keeps Gemini SVG visuals while stripping executable content', () => {
   assert.equal(lesson.questions[0].visual.kind, 'svg');
   assert.doesNotMatch(lesson.questions[0].visual.spec.svg, /script/i);
 });
+
+test('forces math subjects to use token practice without SVG visuals', () => {
+  ['mathematics', 'physics', 'chemistry'].forEach(course => {
+    const lesson = sanitizeLesson({ questions: [{
+      interactionType: 'label_diagram',
+      visual: { kind: 'svg', spec: { svg: '<svg><rect /></svg>' } },
+      options: [{ id: 'A', text: 'Đúng' }, { id: 'B', text: 'Sai' }, { id: 'C', text: 'Sai' }, { id: 'D', text: 'Sai' }],
+      correctOptionId: 'A',
+      tutorSteps: [{ explanation: 'Tách biểu thức.', interaction: { type: 'label_diagram', pairs: [{ id: 'p1', left: 'x', right: 'y' }] } }],
+    }] }, { sourceText: '2x + 1 = 5', subjectArea: 'natural_sciences', course });
+    assert.equal(lesson.questions.length, 5);
+    assert.ok(lesson.questions.every(question => question.interactionType === 'math_tokens'));
+    assert.ok(lesson.questions.every(question => question.visual.kind === 'none'));
+    assert.ok(lesson.questions[0].tutorSteps.every(step => !step.interaction && step.blanks.length && step.tokens.length));
+  });
+});
