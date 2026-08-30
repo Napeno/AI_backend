@@ -6,7 +6,7 @@ const { generateLesson, makeLessonId, generateQuestion, makeQuestionId } = requi
 const RankingService = require('../services/ranking.service');
 const { awardChestnuts } = require('../services/reward.service');
 
-const LESSON_GENERATION_VERSION = 3;
+const LESSON_GENERATION_VERSION = 7;
 const isUsableLesson = lesson => lesson?.generationVersion === LESSON_GENERATION_VERSION
   && Array.isArray(lesson.questions)
   && lesson.questions.length === 5
@@ -15,7 +15,8 @@ const isUsableLesson = lesson => lesson?.generationVersion === LESSON_GENERATION
     && question.prompt
     && Array.isArray(question.options)
     && question.options.length === 4
-    && Array.isArray(question.tutorSteps));
+    && Array.isArray(question.tutorSteps)
+    && question.tutorSteps.length >= 3);
 
 const publicInteraction = interaction => {
   if (!interaction) return null;
@@ -31,6 +32,8 @@ const publicStep = (step, reveal = false) => {
     id: step.id,
     title: step.title,
     explanation: reveal ? step.explanation : '',
+    analysis: reveal ? step.analysis || step.explanation : '',
+    easierExample: reveal ? step.easierExample || null : null,
     blanks: reveal && Array.isArray(step.blanks) ? step.blanks.map(blank => ({ id: blank.id, label: blank.label })) : [],
     tokens: reveal && Array.isArray(step.tokens) ? step.tokens : [],
     interaction: reveal ? publicInteraction(step.interaction) : null,
@@ -88,7 +91,7 @@ const createLesson = async (req, res) => {
       return res.json({ lesson: publicLesson(existing) });
     }
     if (existing) await existing.deleteOne();
-    const lessonData = await generateLesson({ language, questionId: selected.id, sourceText: selected.prompt || conversation.problemContext.sourceText, sourceImage: conversation.problemContext.sourceImage, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel });
+    const lessonData = await generateLesson({ language, questionId: selected.id, sourceText: selected.prompt || conversation.problemContext.sourceText, sourceExpression: selected.sourceExpression || '', sourceImage: conversation.problemContext.sourceImage, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel });
     const lesson = await AiTutorLesson.create({ ...lessonData, generationVersion: LESSON_GENERATION_VERSION, currentStepIndex: -1, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel, lessonId: makeLessonId(), user: req.user._id, sessionId, sourceQuestionId: selected.id });
     return res.status(201).json({ lesson: publicLesson(lesson) });
   } catch (error) {
@@ -143,8 +146,11 @@ const answer = async (req, res) => {
   const question = lesson.questions[lesson.currentQuestionIndex];
   if (!question || question.id !== questionId) return res.status(400).json({ error: 'Question is not active' });
   const correct = question.correctOptionId === optionId;
-  const alreadyRewarded = lesson.attempts?.some(attempt => attempt.questionId === question.id && attempt.correct);
+  const attempts = Array.isArray(lesson.attempts) ? lesson.attempts : [];
+  const alreadyRewarded = attempts.some(attempt => attempt.questionId === question.id && attempt.correct);
+  if (!Array.isArray(lesson.attempts)) lesson.attempts = [];
   lesson.attempts.push({ questionId, optionId, correct, at: new Date() });
+  lesson.markModified('attempts');
   lesson.currentStepIndex = Math.max(lesson.currentStepIndex, 0);
   await lesson.save();
 
@@ -199,9 +205,23 @@ const completeStep = async (req, res) => {
   const lesson = await AiTutorLesson.findOne({ lessonId: req.params.lessonId, user: req.user._id }).select('+questions.correctOptionId');
   if (!lesson) return res.status(404).json({ error: 'Lesson not found' });
   const question = lesson.questions[lesson.currentQuestionIndex];
-  const step = question?.tutorSteps.find(item => item.id === stepId);
-  if (!step || question.id !== questionId || question.tutorSteps[lesson.currentStepIndex]?.id !== stepId) return res.status(400).json({ error: 'Step is not active' });
-  const latestAttempt = [...(lesson.attempts || [])].reverse().find(attempt => attempt.questionId === question.id);
+  if (!question || question.id !== questionId) return res.status(400).json({ error: 'Question is not active' });
+  const attempts = Array.isArray(lesson.attempts) ? lesson.attempts : [];
+  const canAdvanceAfterCorrectAnswer = interactionAnswer?.skip === true
+    && attempts.some(attempt => String(attempt.questionId) === String(question.id) && attempt.correct === true);
+  if (canAdvanceAfterCorrectAnswer) {
+    if (lesson.currentQuestionIndex >= lesson.questions.length - 1) {
+      lesson.completed = true; lesson.completedAt = new Date();
+    } else {
+      lesson.currentQuestionIndex += 1; lesson.currentStepIndex = -1;
+    }
+    await lesson.save();
+    const activeQuestion = lesson.questions[lesson.currentQuestionIndex];
+    const answered = lesson.attempts?.some(attempt => attempt.questionId === activeQuestion?.id);
+    return res.json({ correct: true, lesson: publicLesson(lesson, { revealCorrect: answered, unlockedStep: lesson.currentStepIndex }) });
+  }
+  const step = question.tutorSteps.find(item => item.id === stepId);
+  if (!step || question.tutorSteps[lesson.currentStepIndex]?.id !== stepId) return res.status(400).json({ error: 'Step is not active' });
   const tokenValid = step.interaction ? true : step.blanks.every(blank => placements[blank.id] === blank.expectedTokenId);
   const interactionValid = step.interaction?.type === 'sort_sequence'
     ? JSON.stringify(interactionAnswer.order || []) === JSON.stringify([...step.interaction.items].sort((a, b) => a.order - b.order).map(item => item.id))
@@ -212,21 +232,13 @@ const completeStep = async (req, res) => {
         : step.interaction?.type === 'cloze'
           ? String(interactionAnswer.text || '').trim().toLowerCase() === step.interaction.answer
         : true;
-  const valid = (interactionAnswer?.skip === true && latestAttempt?.correct) || (tokenValid && interactionValid);
-  if (!valid) return res.status(400).json({ correct: false, error: step.interaction ? 'Câu trả lời chưa đúng, hãy thử lại.' : 'Hãy đặt đúng token vào từng ô trống.', lesson: publicLesson(lesson, { revealCorrect: true, unlockedStep: lesson.currentStepIndex }) });
-  if (interactionAnswer?.skip === true && latestAttempt?.correct) {
-    if (lesson.currentQuestionIndex >= lesson.questions.length - 1) {
-      lesson.completed = true; lesson.completedAt = new Date();
-    } else {
-      lesson.currentQuestionIndex += 1; lesson.currentStepIndex = -1;
-    }
-  } else {
-    lesson.currentStepIndex = Math.min(lesson.currentStepIndex + 1, question.tutorSteps.length - 1);
-    if (lesson.currentStepIndex >= question.tutorSteps.length - 1 && lesson.currentQuestionIndex >= lesson.questions.length - 1) {
-      lesson.completed = true; lesson.completedAt = new Date();
-    } else if (lesson.currentStepIndex >= question.tutorSteps.length - 1) {
-      lesson.currentQuestionIndex += 1; lesson.currentStepIndex = -1;
-    }
+  const valid = tokenValid && interactionValid;
+  if (!valid) return res.status(400).json({ correct: false, error: step.interaction ? 'Câu trả lời chưa đúng, hãy thử lại.' : 'Hãy chọn đúng đáp án cho từng vị trí.', lesson: publicLesson(lesson, { revealCorrect: true, unlockedStep: lesson.currentStepIndex }) });
+  lesson.currentStepIndex = Math.min(lesson.currentStepIndex + 1, question.tutorSteps.length - 1);
+  if (lesson.currentStepIndex >= question.tutorSteps.length - 1 && lesson.currentQuestionIndex >= lesson.questions.length - 1) {
+    lesson.completed = true; lesson.completedAt = new Date();
+  } else if (lesson.currentStepIndex >= question.tutorSteps.length - 1) {
+    lesson.currentQuestionIndex += 1; lesson.currentStepIndex = -1;
   }
   await lesson.save();
   const activeQuestion = lesson.questions[lesson.currentQuestionIndex];

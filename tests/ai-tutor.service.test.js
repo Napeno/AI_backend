@@ -31,6 +31,7 @@ test('keeps lesson answers and drag tokens in a bounded, server-checkable shape'
   assert.equal(lesson.questions.length, 5);
   assert.equal(lesson.questions[0].options.length, 4);
   assert.equal(lesson.questions[0].tutorSteps[0].blanks[0].expectedTokenId, 'good');
+  assert.ok(lesson.questions[0].tutorSteps.length >= 3);
   assert.equal(fallbackLesson().questions[0].options.length, 4);
 });
 
@@ -67,4 +68,63 @@ test('forces math subjects to use token practice without SVG visuals', () => {
     assert.ok(lesson.questions.every(question => question.visual.kind === 'none'));
     assert.ok(lesson.questions[0].tutorSteps.every(step => !step.interaction && step.blanks.length && step.tokens.length));
   });
+});
+
+test('builds algebra practice from the expression in the source problem', () => {
+  const lesson = fallbackLesson({ sourceText: 'Khai triển (x + 3)^2', language: 'vi', subjectArea: 'mathematics', course: 'mathematics' });
+
+  assert.match(lesson.questions[0].prompt, /\(x \+ 3\)²/);
+  assert.equal(lesson.questions[0].options[0].text, '(a ± b)² = a² ± 2ab + b²');
+  assert.match(lesson.questions[1].prompt, /\(x \+ 3\)²/);
+  assert.equal(lesson.questions[0].tutorSteps.length, 3);
+  assert.match(lesson.questions[0].tutorSteps[1].explanation, /2 × 3 × x/);
+  assert.equal(lesson.questions[0].tutorSteps[1].blanks[0].expectedTokenId, 'middle-term');
+  assert.equal(lesson.questions[0].tutorSteps[2].tokens[0].label, 'x² + 6x + 9');
+  assert.match(lesson.questions[2].options[0].text, /x² \+ 6x \+ 9/);
+});
+
+test('creates a same-topic example when the source only names the algebra topic', () => {
+  const lesson = fallbackLesson({ sourceText: 'hằng đẳng thức lớp 8', language: 'vi', subjectArea: 'mathematics', course: 'mathematics' });
+
+  assert.match(lesson.questions[0].prompt, /\(a \+ 2\)²/);
+  assert.match(lesson.questions[2].prompt, /\(a \+ 2\)²/);
+  assert.match(lesson.questions[2].options[0].text, /a² \+ 4a \+ 4/);
+  assert.ok(lesson.questions.every(question => question.interactionType === 'math_tokens'));
+});
+
+test('adds analysis and an easier example to algebra guidance', () => {
+  const question = fallbackLesson({ sourceText: 'hằng đẳng thức lớp 8', language: 'vi', subjectArea: 'mathematics', course: 'mathematics' }).questions[0];
+
+  assert.match(question.tutorSteps[0].analysis, /Phân tích/);
+  assert.match(question.tutorSteps[0].easierExample.prompt, /\(a \+ 1\)²/);
+  assert.equal(question.tutorSteps[0].easierExample.answer, '(a + b)² = a² + 2ab + b²');
+});
+
+test('replaces generic algebra tutor steps with source-specific steps', () => {
+  const lesson = sanitizeLesson({ questions: [{
+    title: 'Khai triển biểu thức',
+    prompt: 'Chọn đáp án đúng cho (x + 3)^2.',
+    options: [{ id: 'A', text: 'x² + 6x + 9' }, { id: 'B', text: 'x² + 3x + 9' }, { id: 'C', text: 'x² + 9' }, { id: 'D', text: '2x² + 9' }],
+    correctOptionId: 'A',
+    tutorSteps: [{ title: 'Xác định dữ kiện', explanation: 'Hãy đọc đề.' }],
+  }] }, { sourceText: 'Bài toán: khai triển (x + 3)^2', language: 'vi', subjectArea: 'mathematics', course: 'mathematics' });
+
+  assert.match(lesson.questions[0].tutorSteps[0].explanation, /\(x \+ 3\)²/);
+  assert.match(lesson.questions[0].tutorSteps[1].explanation, /2 × 3 × x/);
+  assert.match(lesson.questions[0].tutorSteps[2].explanation, /\(x \+ 3\)²/);
+});
+
+test('falls back to the original problem when Gemini returns an unrelated question', () => {
+  const sourceText = 'Một vật chuyển động với vận tốc 5 m/s trong 3 giây. Tính quãng đường.';
+  const lesson = sanitizeLesson({ questions: [{
+    prompt: 'Khai triển (y + 9)^2.',
+    options: [{ id: 'A', text: 'y² + 18y + 81' }, { id: 'B', text: 'y² + 9' }, { id: 'C', text: '2y + 9' }, { id: 'D', text: '81' }],
+    correctOptionId: 'A',
+    tutorSteps: [{ explanation: 'Hãy dùng định lý Pythagore cho tam giác vuông.' }],
+  }] }, { sourceText, language: 'vi', subjectArea: 'natural_sciences', course: 'physics' });
+
+  assert.match(lesson.questions[0].prompt, /vận tốc 5 m\/s trong 3 giây/);
+  assert.doesNotMatch(lesson.questions[0].prompt, /Khai triển \(y \+ 9\)\^2/);
+  assert.equal(lesson.questions[0].options[0].text, sourceText);
+  assert.match(lesson.questions[0].tutorSteps[0].explanation, /vận tốc 5 m\/s trong 3 giây/);
 });

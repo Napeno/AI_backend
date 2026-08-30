@@ -12,6 +12,100 @@ const parseJson = text => {
 const text = (value, fallback, max = 500) => String(value || fallback).replace(/<[^>]*>/g, '').trim().slice(0, max) || fallback;
 const id = value => String(value || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 32);
 const isMathCourse = ({ subjectArea = '', course = '' } = {}) => subjectArea === 'mathematics' || ['mathematics', 'physics', 'chemistry'].includes(course);
+const extractBinomialSquare = value => {
+  const match = String(value || '').match(/\(\s*([a-z])\s*([+-])\s*(\d+)\s*\)\s*(?:\^\s*2|²)/i);
+  if (!match) return null;
+  const variable = match[1].toLowerCase();
+  const constant = Number(match[3]);
+  const sign = match[2];
+  const middle = `${sign === '-' ? '−' : ''}${2 * constant}${variable}`;
+  return {
+    variable,
+    constant,
+    sign,
+    expression: `(${variable} ${sign} ${constant})²`,
+    result: `${variable}² ${sign === '-' ? '−' : '+'} ${2 * constant}${variable} + ${constant ** 2}`,
+    middle,
+  };
+};
+const algebraData = sourceText => extractBinomialSquare(sourceText);
+const topicAlgebraData = sourceText => /hằng\s*đẳng\s*thức|hang\s*dang\s*thuc/i.test(String(sourceText || ''))
+  ? extractBinomialSquare('(a + 2)^2')
+  : null;
+const mathTokenStep = (id, title, explanation, blankLabel, expectedTokenId, tokens) => ({
+  id,
+  title,
+  explanation,
+  analysis: explanation,
+  easierExample: { prompt: 'Hãy áp dụng đúng ý vừa phân tích vào một ví dụ đơn giản hơn.', answer: tokens.find(([tokenId]) => tokenId === expectedTokenId)?.[1] || '' },
+  blanks: [{ id: `${id}-blank`, label: blankLabel, expectedTokenId }],
+  tokens: tokens.map(([tokenId, label, type = 'text']) => ({ id: tokenId, label, type })),
+});
+const algebraTutorSteps = data => [
+  mathTokenStep(
+    's1',
+    'Xác định công thức',
+    `Đề bài yêu cầu khai triển ${data.expression}. Hãy chọn đúng công thức bình phương một tổng/hiệu.`,
+    'Công thức',
+    'square-formula',
+    [['square-formula', '(a ± b)² = a² ± 2ab + b²'], ['wrong-formula', 'a² ± b²'], ['linear-formula', 'a ± b']],
+  ),
+  mathTokenStep(
+    's2',
+    'Tính số hạng giữa',
+    `Trong ${data.expression}, số hạng giữa là 2 × ${data.constant} × ${data.variable}.`,
+    'Số hạng giữa',
+    'middle-term',
+    [['middle-term', data.middle, 'variable'], ['wrong-middle', `${data.constant}${data.variable}`, 'variable'], ['constant-term', String(data.constant ** 2), 'number']],
+  ),
+  mathTokenStep(
+    's3',
+    'Kết luận',
+    `Ghép ba phần của hằng đẳng thức để thu được kết quả khai triển của ${data.expression}.`,
+    'Kết quả',
+    'expanded-result',
+    [['expanded-result', data.result, 'variable'], ['wrong-result', `${data.variable}² + ${data.constant}${data.variable} + ${data.constant}`, 'variable'], ['constant-only', String(data.constant ** 2), 'number']],
+  ),
+].map((step, index) => ({
+  ...step,
+  analysis: index === 0
+    ? `Phân tích ${data.expression}: nhận diện dạng bình phương một tổng/hiệu trước khi thay số.`
+    : index === 1
+      ? `Phân tích ${data.expression}: số hạng giữa được tính bằng 2 × ${data.constant} × ${data.variable}.`
+      : `Phân tích ${data.expression}: ghép bình phương thứ nhất, số hạng giữa và bình phương thứ hai để kiểm tra kết quả.`,
+  easierExample: index === 0
+    ? { prompt: 'Ví dụ dễ hơn: với (a + 1)², công thức vẫn là (a + b)² = a² + 2ab + b².', answer: '(a + b)² = a² + 2ab + b²', hint: 'Chỉ cần nhận diện số hạng a và 1.' }
+    : index === 1
+      ? { prompt: 'Ví dụ dễ hơn: số hạng giữa của (a + 1)² là 2 × 1 × a = 2a.', answer: '2a', hint: 'Lấy 2 nhân phần biến nhân phần số.' }
+      : { prompt: 'Ví dụ dễ hơn: (a + 1)² = a² + 2a + 1.', answer: 'a² + 2a + 1', hint: 'Ghép đủ ba phần theo đúng thứ tự.' },
+}));
+const algebraQuestion = (data, index, language = 'vi') => {
+  const tasks = language === 'vi'
+    ? [
+      [`Khai triển ${data.expression} bằng hằng đẳng thức nào?`, ['(a ± b)² = a² ± 2ab + b²', 'a² ± b²', 'a ± b', '2a + 2b']],
+      [`Số hạng giữa khi khai triển ${data.expression} là bao nhiêu?`, [data.middle, String(data.constant), `${data.constant}${data.variable}`, String(data.constant ** 2)]],
+      [`Kết quả khai triển ${data.expression} là gì?`, [data.result, `${data.variable}² + ${data.constant}${data.variable} + ${data.constant}`, `${data.variable}² ${data.sign === '-' ? '+' : '−'} ${2 * data.constant}${data.variable} + ${data.constant ** 2}`, `${data.variable}² + ${data.constant ** 2}`]],
+      [`Biểu thức nào có đúng dạng hằng đẳng thức liên quan đến ${data.expression}?`, [data.expression, `${data.variable}² + ${data.constant ** 2}`, `${data.variable} + ${data.constant}`, `${data.constant}${data.variable}`]],
+      [`Nếu ${data.variable} = 1, giá trị của ${data.expression} là bao nhiêu?`, [String((1 + (data.sign === '-' ? -data.constant : data.constant)) ** 2), String(data.constant ** 2), String(1 + data.constant), String(2 * data.constant)]],
+    ]
+    : [
+      [`Which identity expands ${data.expression}?`, ['(a ± b)² = a² ± 2ab + b²', 'a² ± b²', 'a ± b', '2a + 2b']],
+      [`What is the middle term when expanding ${data.expression}?`, [data.middle, String(data.constant), `${data.constant}${data.variable}`, String(data.constant ** 2)]],
+      [`What is the result of expanding ${data.expression}?`, [data.result, `${data.variable}² + ${data.constant}${data.variable} + ${data.constant}`, `${data.variable}² ${data.sign === '-' ? '+' : '−'} ${2 * data.constant}${data.variable} + ${data.constant ** 2}`, `${data.variable}² + ${data.constant ** 2}`]],
+      [`Which expression uses the identity related to ${data.expression}?`, [data.expression, `${data.variable}² + ${data.constant ** 2}`, `${data.variable} + ${data.constant}`, `${data.constant}${data.variable}`]],
+      [`If ${data.variable} = 1, what is the value of ${data.expression}?`, [String((1 + (data.sign === '-' ? -data.constant : data.constant)) ** 2), String(data.constant ** 2), String(1 + data.constant), String(2 * data.constant)]],
+    ];
+  const [prompt, optionTexts] = tasks[index] || tasks[0];
+  return {
+    title: language === 'vi' ? `Khai triển ${data.expression} · Câu ${index + 1}` : `Expand ${data.expression} · Question ${index + 1}`,
+    prompt,
+    visual: { kind: 'none' },
+    interactionType: 'math_tokens',
+    options: optionTexts.map((optionText, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text: optionText })),
+    correctOptionId: 'A',
+    tutorSteps: algebraTutorSteps(data),
+  };
+};
 const sanitizeSvg = value => String(value || '')
   .replace(/<script[\s\S]*?<\/script>/gi, '')
   .replace(/<(?:foreignObject|iframe|object|embed)[\s\S]*?<\/\s*(?:foreignObject|iframe|object|embed)>/gi, '')
@@ -26,41 +120,87 @@ const interactionFor = ({ subjectArea = '', course = '' } = {}) => {
   return 'generic_tokens';
 };
 
-const fallbackLesson = ({ sourceText = '', questionId = 'main', language = 'vi', subjectArea = '', course = '' } = {}) => {
-  const interactionType = interactionFor({ subjectArea, course });
-  const prompts = language === 'vi'
-    ? ['Đề bài cho biết dữ kiện nào?', 'Em cần tìm đại lượng hoặc ý chính nào?', 'Công thức/khái niệm nào phù hợp?', 'Bước tính hoặc lập luận tiếp theo là gì?', 'Kết quả cuối cùng nên được kiểm tra ra sao?']
-    : ['What information does the problem give?', 'What quantity or main idea must you find?', 'Which formula or concept applies?', 'What calculation or reasoning comes next?', 'How should you check the final result?'];
-  const algebra = /hằng đẳng thức|hang dang thuc|\(a\s*[+-]/i.test(sourceText);
-  const fallbackTasks = algebra && language === 'vi'
-    ? [
-      ['Khai triển (a + 2)² bằng hằng đẳng thức nào?', ['a² + 4a + 4', 'a² + 2a + 4', 'a² + 4', '2a² + 4']],
-      ['Hệ số của a trong (a + 2)² là bao nhiêu?', ['2', '4', '1', '8']],
-      ['Khai triển (a − 3)² cho kết quả nào?', ['a² − 6a + 9', 'a² − 3a + 9', 'a² + 6a + 9', 'a² − 9']],
-      ['Biểu thức nào là hiệu hai bình phương?', ['a² − 9', 'a² + 9', '(a + 3)²', '3a²']],
-      ['Với a = 5, giá trị (a + 2)² bằng bao nhiêu?', ['49', '25', '14', '35']],
-    ]
-    : null;
-  const questions = Array.from({ length: 5 }, (_, index) => ({
-    id: `q${index + 1}`,
-    title: language === 'vi' ? `Tách dữ kiện · Câu ${index + 1}` : `Identify the given data · Question ${index + 1}`,
-    prompt: sourceText ? `${sourceText}\n\n${fallbackTasks?.[index]?.[0] || prompts[index]}` : prompts[index],
-    // Keep offline fallback text-only; visuals are accepted only from Gemini.
-    visual: { kind: 'none' },
-    interactionType,
-    options: fallbackTasks?.[index]?.[1].map((text, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text })) || [
-      { id: 'A', text: language === 'vi' ? 'Đọc và gạch chân dữ kiện' : 'Read and underline the data' },
-      { id: 'B', text: language === 'vi' ? 'Chọn ngẫu nhiên một đáp án' : 'Pick an answer randomly' },
-      { id: 'C', text: language === 'vi' ? 'Bỏ qua câu hỏi' : 'Skip the question' },
-      { id: 'D', text: language === 'vi' ? 'Xin đáp án ngay' : 'Ask for the answer immediately' },
-    ],
-    correctOptionId: algebra && index === 1 ? 'B' : 'A',
-    tutorSteps: [{ id: 's1', title: language === 'vi' ? 'Bước 1 · Xác định dữ kiện' : 'Step 1 · Find the data', explanation: language === 'vi' ? 'Hãy chọn dữ kiện quan trọng nhất trong đề.' : 'Choose the most important data in the problem.', blanks: [{ id: 'b1', label: 'Dữ kiện', expectedTokenId: 't1' }], tokens: [{ id: 't1', label: language === 'vi' ? 'Dữ kiện đề bài' : 'Given data', type: 'text' }, { id: 't2', label: '+', type: 'operator' }, { id: 't3', label: '?', type: 'text' }] }],
+const sourceAnchor = (sourceText, language = 'vi') => {
+  const source = String(sourceText || '').trim();
+  if (!source) return '';
+  return language === 'vi' ? `Dựa vào đề bài: ${source}` : `Based on the original problem: ${source}`;
+};
+
+const normalizeForMatch = value => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+const includesSourceAnchor = (value, sourceText) => {
+  const source = normalizeForMatch(sourceText);
+  const content = normalizeForMatch(value);
+  return !source || content.includes(source) || content.includes(source.slice(0, 48));
+};
+
+const isRelatedToSource = (value, sourceText) => {
+  if (!sourceText) return true;
+  if (includesSourceAnchor(value, sourceText)) return true;
+  const source = normalizeForMatch(sourceText);
+  const content = normalizeForMatch(value);
+  const sourceNumbers = source.match(/\d+(?:[.,/]\d+)?/g) || [];
+  const matchingNumbers = sourceNumbers.filter(number => content.includes(number)).length;
+  if (matchingNumbers >= Math.min(2, sourceNumbers.length) && matchingNumbers > 0) return true;
+  const ignored = new Set(['bài', 'toán', 'hãy', 'câu', 'hỏi', 'tính', 'tìm', 'cho', 'biết', 'nào', 'đây', 'what', 'which', 'find', 'calculate']);
+  const terms = [...new Set(source.match(/[a-zà-ỹ]{5,}/gi) || [])]
+    .map(normalizeForMatch)
+    .filter(term => !ignored.has(term));
+  return terms.length > 0 && terms.filter(term => content.includes(term)).length >= Math.min(2, terms.length);
+};
+
+const genericTutorSteps = ({ sourceText, sourceOption, language }) => {
+  const source = sourceText || (language === 'vi' ? 'bài toán này' : 'this problem');
+  const labels = language === 'vi'
+    ? ['Dữ kiện đề bài', 'Yêu cầu của đề', 'Kiểm tra kết quả']
+    : ['Problem data', 'Task requirement', 'Check the result'];
+  const explanations = language === 'vi'
+    ? [`Ghi lại dữ kiện đúng từ đề bài: ${source}.`, `Dựa trên ${source}, xác định đúng điều đề bài yêu cầu.`, `Đối chiếu câu trả lời với đề bài: ${source}.`]
+    : [`Record the data from the original problem: ${source}.`, `Based on ${source}, identify exactly what the problem asks.`, `Check the answer against the original problem: ${source}.`];
+  return explanations.map((explanation, index) => ({
+    id: `s${index + 1}`,
+    title: language === 'vi' ? `Bước ${index + 1}` : `Step ${index + 1}`,
+    explanation,
+    analysis: language === 'vi' ? `Phân tích nhanh: ${explanation}` : `Quick analysis: ${explanation}`,
+    easierExample: { prompt: language === 'vi' ? `Ví dụ dễ hơn: hãy nhận diện phần liên quan trong “${source}”.` : `Easier example: identify the relevant part in “${source}”.`, answer: sourceOption },
+    blanks: [{ id: `s${index + 1}-blank`, label: labels[index], expectedTokenId: `s${index + 1}-token` }],
+    tokens: [{ id: `s${index + 1}-token`, label: sourceOption, type: 'text' }, { id: `s${index + 1}-other`, label: '?', type: 'text' }],
   }));
+};
+
+const fallbackLesson = ({ sourceText = '', sourceExpression = '', questionId = 'main', language = 'vi', subjectArea = '', course = '' } = {}) => {
+  const interactionType = interactionFor({ subjectArea, course });
+  const anchor = sourceAnchor(sourceText, language) || (language === 'vi' ? 'Đề bài này' : 'This problem');
+  const prompts = language === 'vi'
+    ? [`${anchor} cho biết dữ kiện nào cần dùng?`, `${anchor} yêu cầu tìm đại lượng hoặc ý chính nào?`, `${anchor} cần áp dụng công thức/khái niệm nào?`, `${anchor} cần thực hiện phép tính hoặc lập luận nào tiếp theo?`, `${anchor} cần kiểm tra kết quả cuối cùng như thế nào?`]
+    : [`What data must be used from this problem? ${anchor}`, `What quantity or main idea must be found in this problem? ${anchor}`, `Which formula or concept applies to this problem? ${anchor}`, `What calculation or reasoning comes next for this problem? ${anchor}`, `How should the result of this problem be checked? ${anchor}`];
+  const sourceOption = sourceText ? text(sourceText, language === 'vi' ? 'Dữ kiện trong đề bài' : 'Data from the problem', 180) : language === 'vi' ? 'Dữ kiện trong đề bài' : 'Data from the problem';
+  const algebra = algebraData(sourceExpression || sourceText) || topicAlgebraData(sourceText);
+  const questions = Array.from({ length: 5 }, (_, index) => {
+    const generated = algebra ? algebraQuestion(algebra, index, language) : null;
+    return {
+      ...(generated || {
+        id: `q${index + 1}`,
+        title: language === 'vi' ? `Làm rõ yêu cầu · Câu ${index + 1}` : `Clarify the task · Question ${index + 1}`,
+        prompt: prompts[index],
+      }),
+      id: `q${index + 1}`,
+      // Keep offline fallback text-only; visuals are accepted only from Gemini.
+      visual: { kind: 'none' },
+      interactionType,
+      options: generated?.options || [
+        { id: 'A', text: sourceOption },
+        { id: 'B', text: language === 'vi' ? 'Một thông tin không xuất hiện trong đề' : 'Information not present in the problem' },
+        { id: 'C', text: language === 'vi' ? 'Một dữ kiện trái với đề bài' : 'Data that contradicts the problem' },
+        { id: 'D', text: language === 'vi' ? 'Một nội dung không liên quan đến đề' : 'Content unrelated to the problem' },
+      ],
+      correctOptionId: 'A',
+      tutorSteps: algebra ? algebraTutorSteps(algebra) : genericTutorSteps({ sourceText, sourceOption, language }),
+    };
+  });
   return { sourceQuestionId: questionId, sourceText, questions };
 };
 
-const normalizeStep = (raw, index, fallback) => {
+const normalizeStep = (raw, index, fallback, sourceText, language) => {
   const tokens = Array.isArray(raw?.tokens) ? raw.tokens.slice(0, 12).map((token, tokenIndex) => ({ id: id(token?.id) || `t${index + 1}_${tokenIndex + 1}`, label: text(token?.label, '?', 30), type: ['number', 'operator', 'variable', 'text'].includes(token?.type) ? token.type : 'text' })) : fallback.tokens;
   const tokenIds = new Set(tokens.map(token => token.id));
   const blanks = Array.isArray(raw?.blanks) ? raw.blanks.slice(0, 6).map((blank, blankIndex) => ({ id: id(blank?.id) || `b${index + 1}_${blankIndex + 1}`, label: text(blank?.label, 'Ô trống', 50), expectedTokenId: tokenIds.has(id(blank?.expectedTokenId)) ? id(blank.expectedTokenId) : tokens[0]?.id })).filter(blank => blank.expectedTokenId) : fallback.blanks;
@@ -74,14 +214,33 @@ const normalizeStep = (raw, index, fallback) => {
           ? { type: 'cloze', prompt: text(raw.interaction.prompt, 'Điền từ còn thiếu.', 300), answer: text(raw.interaction.answer, '', 80).toLowerCase() }
         : null;
   const needsFallbackExercise = !interaction && (!blanks.length || !tokens.length);
-  return { id: id(raw?.id) || `s${index + 1}`, title: text(raw?.title, fallback.title, 90), explanation: text(raw?.explanation, fallback.explanation, 500), blanks: needsFallbackExercise ? fallback.blanks : blanks, tokens: needsFallbackExercise ? fallback.tokens : tokens, interaction };
+  const rawExplanation = text(raw?.explanation, fallback.explanation, 500);
+  if (!isRelatedToSource(rawExplanation, sourceText)) return fallback;
+  const easierExample = raw?.easierExample && typeof raw.easierExample === 'object'
+    ? {
+      prompt: text(raw.easierExample.prompt, fallback.easierExample?.prompt || 'Ví dụ dễ hơn.', 500),
+      answer: text(raw.easierExample.answer, fallback.easierExample?.answer || '', 120),
+      hint: text(raw.easierExample.hint, '', 300),
+    }
+    : fallback.easierExample;
+  return { id: id(raw?.id) || `s${index + 1}`, title: text(raw?.title, fallback.title, 90), explanation: rawExplanation, analysis: text(raw?.analysis, fallback.analysis || rawExplanation, 500), easierExample, blanks: needsFallbackExercise ? fallback.blanks : blanks, tokens: needsFallbackExercise ? fallback.tokens : tokens, interaction };
 };
 
 const normalizeQuestion = (raw, index, sourceText, language, context = {}) => {
-  const fallback = fallbackLesson({ sourceText, language, subjectArea: context.subjectArea, course: context.course }).questions[0];
+  const fallback = fallbackLesson({ sourceText, sourceExpression: context.sourceExpression, language, subjectArea: context.subjectArea, course: context.course }).questions[index];
   const options = Array.isArray(raw?.options) ? raw.options.slice(0, 4).map((option, optionIndex) => ({ id: String(option?.id || String.fromCharCode(65 + optionIndex)).slice(0, 2), text: text(option?.text, fallback.options[optionIndex]?.text || 'Lựa chọn', 180) })) : fallback.options;
   const validIds = new Set(options.map(option => option.id));
-  const steps = Array.isArray(raw?.tutorSteps) ? raw.tutorSteps.slice(0, 4).map((step, stepIndex) => normalizeStep(step, stepIndex, fallback.tutorSteps[0])).filter(Boolean) : fallback.tutorSteps;
+  const rawPrompt = text(raw?.prompt, sourceText || fallback.prompt, 900);
+  if (!isRelatedToSource(rawPrompt, sourceText)) {
+    return { id: id(raw?.id) || `q${index + 1}`, ...fallback };
+  }
+  const prompt = rawPrompt;
+  // Never infer the source problem from Gemini's prompt; that would let an
+  // unrelated expression in the generated text replace the student's problem.
+  const algebra = algebraData(context.sourceExpression || sourceText) || topicAlgebraData(sourceText);
+  if (algebra) return { id: id(raw?.id) || `q${index + 1}`, ...algebraQuestion(algebra, index, language) };
+  const steps = Array.isArray(raw?.tutorSteps) ? raw.tutorSteps.slice(0, 4).map((step, stepIndex) => normalizeStep(step, stepIndex, fallback.tutorSteps[stepIndex] || fallback.tutorSteps[0], sourceText, language)).filter(Boolean) : fallback.tutorSteps;
+  while (steps.length < 3) steps.push(fallback.tutorSteps[steps.length]);
   const mathSubject = isMathCourse(context);
   steps.forEach(step => {
     if (mathSubject) {
@@ -106,7 +265,7 @@ const normalizeQuestion = (raw, index, sourceText, language, context = {}) => {
     : null;
   const interactionType = resolvedInteractionType;
   const visual = mathSubject || interactionType === 'math_tokens' ? { kind: 'none' } : visualSpec?.svg ? { kind: 'svg', spec: visualSpec } : { kind: 'none' };
-  return { id: id(raw?.id) || `q${index + 1}`, title: text(raw?.title, fallback.title, 120), prompt: text(raw?.prompt, sourceText || fallback.prompt, 900), visual, interactionType, options: options.length === 4 ? options : fallback.options, correctOptionId: validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A', tutorSteps: steps.length ? steps : fallback.tutorSteps };
+  return { id: id(raw?.id) || `q${index + 1}`, title: text(raw?.title, fallback.title, 120), prompt, visual, interactionType, options: options.length === 4 ? options : fallback.options, correctOptionId: validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A', tutorSteps: steps.length ? steps : fallback.tutorSteps };
 };
 
 const sanitizeLesson = (raw, context = {}) => {
@@ -120,7 +279,7 @@ const sanitizeLesson = (raw, context = {}) => {
 const generateLesson = async (context = {}) => {
   const fallback = fallbackLesson(context);
   try {
-    const prompt = `Tạo mini-lesson LIÊN TỤC ĐÚNG 5 CÂU dựa CHỈ trên bài học sau. Không đổi dữ kiện. Ngôn ngữ: ${context.language || 'vi'}. Cấp học: ${context.educationLevel || 'middle'}. Nhóm môn: ${context.subjectArea || 'natural_sciences'}. Môn: ${context.course || ''}. Bài học: ${context.sourceText || '(xem ảnh đính kèm)'}. Mỗi câu phải là một bài tập mới liên quan trực tiếp đề gốc, có dữ kiện cụ thể, câu hỏi rõ ràng, 4 đáp án nhiễu hợp lý và tăng dần độ khó. Nếu là Toán/Lý/Hóa (math_tokens), KHÔNG tạo hình ảnh/SVG; tập trung vào biểu thức, phép tính và suy luận. Chỉ tạo SVG đơn giản cho môn cần sơ đồ, không script/HTML/external URL. Trả JSON duy nhất theo schema questions gồm id,title,prompt,visual,interactionType,options,correctOptionId,tutorSteps. Không trả câu hỏi chung chung kiểu đọc dữ kiện, không thương hiệu.`;
+    const prompt = `Tạo mini-lesson LIÊN TỤC ĐÚNG 5 CÂU dựa CHỈ trên bài học sau. Không đổi dữ kiện. Ngôn ngữ: ${context.language || 'vi'}. Cấp học: ${context.educationLevel || 'middle'}. Nhóm môn: ${context.subjectArea || 'natural_sciences'}. Môn: ${context.course || ''}. Bài học gốc: ${context.sourceText || '(xem ảnh đính kèm)'}. Biểu thức gốc nếu có: ${context.sourceExpression || '(không có)'}. Mỗi câu phải là một ví dụ/bài tập mới cùng dạng với câu hỏi chính, có thể giải bằng đúng công thức hoặc phương pháp của đề gốc; không đổi chủ đề, biến, số liệu hoặc yêu cầu đã có. Nếu nguồn chỉ nêu chủ đề mà chưa có số liệu cụ thể, hãy tạo một ví dụ minh họa cùng chủ đề với số nhỏ, nói rõ đó là ví dụ áp dụng. Mỗi tutorStep phải có explanation, analysis (phân tích ngắn câu hiện tại), và easierExample gồm prompt, answer, hint; easierExample phải là một ví dụ cùng dạng nhưng đơn giản hơn nhiều để học sinh bắt chước trước. Mỗi tutorStep cũng phải nhắc chi tiết cụ thể của câu đang hỏi; tuyệt đối không dùng bước chung chung như "xác định dữ kiện quan trọng", "đọc đề" nếu không kèm dữ kiện cụ thể. Nếu là Toán/Lý/Hóa (math_tokens), KHÔNG tạo hình ảnh/SVG; tập trung vào biểu thức, phép tính và suy luận. Chỉ tạo SVG đơn giản cho môn cần sơ đồ, không script/HTML/external URL. Trả JSON duy nhất theo schema questions gồm id,title,prompt,visual,interactionType,options,correctOptionId,tutorSteps. Không trả câu hỏi chung chung, không thương hiệu.`;
     const chat = startChat([], 'Bạn là AI Tutor. Chỉ trả JSON hợp lệ, trung thành với đề bài.');
     const parts = [{ text: prompt }];
     if (context.sourceImage?.url) {

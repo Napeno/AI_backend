@@ -17,10 +17,18 @@ const tokenSchema = new mongoose.Schema({
   type: { type: String, enum: ['number', 'operator', 'variable', 'text'], required: true },
 }, { _id: false });
 
+const easierExampleSchema = new mongoose.Schema({
+  prompt: { type: String, default: '' },
+  answer: { type: String, default: '' },
+  hint: { type: String, default: '' },
+}, { _id: false });
+
 const tutorStepSchema = new mongoose.Schema({
   id: { type: String, required: true },
   title: { type: String, required: true },
   explanation: { type: String, required: true },
+  analysis: { type: String, default: '' },
+  easierExample: { type: easierExampleSchema, default: null },
   blanks: { type: [blankSchema], default: [] },
   tokens: { type: [tokenSchema], default: [] },
   interaction: { type: mongoose.Schema.Types.Mixed, default: null },
@@ -39,7 +47,7 @@ const tutorQuestionSchema = new mongoose.Schema({
 
 const aiTutorLessonSchema = new mongoose.Schema({
   lessonId: { type: String, required: true, unique: true },
-  generationVersion: { type: Number, default: 3 },
+  generationVersion: { type: Number, default: 7 },
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sessionId: { type: String, required: true },
   sourceQuestionId: { type: String, required: true },
