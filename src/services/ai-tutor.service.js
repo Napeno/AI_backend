@@ -11,6 +11,11 @@ const parseJson = text => {
 
 const text = (value, fallback, max = 500) => String(value || fallback).replace(/<[^>]*>/g, '').trim().slice(0, max) || fallback;
 const id = value => String(value || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 32);
+const sanitizeSvg = value => String(value || '')
+  .replace(/<script[\s\S]*?<\/script>/gi, '')
+  .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+  .replace(/\s(?:href|xlink:href)\s*=\s*["'](?:https?:|data:text\/html|javascript:)[^"']*["']/gi, '')
+  .slice(0, 12000);
 const interactionFor = ({ subjectArea = '', course = '' } = {}) => {
   if (course === 'english_language' || course === 'foreign_language') return 'cloze';
   if (subjectArea === 'social_sciences' || ['literature', 'history', 'geography', 'civics'].includes(course)) return 'evidence_choice';
@@ -76,7 +81,7 @@ const normalizeQuestion = (raw, index, sourceText, language, context = {}) => {
   });
   const interactionTypes = ['math_tokens', 'label_diagram', 'sort_sequence', 'match_pairs', 'cloze', 'evidence_choice', 'cause_effect', 'generic_tokens'];
   const visualSpec = raw?.visual?.kind === 'svg' && raw.visual.spec && typeof raw.visual.spec === 'object'
-    ? { ...raw.visual.spec, svg: String(raw.visual.spec.svg || '').replace(/<script[\s\S]*?<\/script>/gi, '').slice(0, 12000) }
+    ? { ...raw.visual.spec, svg: sanitizeSvg(raw.visual.spec.svg) }
     : null;
   return { id: id(raw?.id) || `q${index + 1}`, title: text(raw?.title, fallback.title, 120), prompt: text(raw?.prompt, sourceText || fallback.prompt, 900), visual: visualSpec?.svg ? { kind: 'svg', spec: visualSpec } : { kind: 'fallback', spec: { label: text(raw?.visual?.spec?.label, 'Minh họa bài toán', 80) } }, interactionType: interactionTypes.includes(raw?.interactionType) ? raw.interactionType : 'generic_tokens', options: options.length === 4 ? options : fallback.options, correctOptionId: validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A', tutorSteps: steps.length ? steps : fallback.tutorSteps };
 };
