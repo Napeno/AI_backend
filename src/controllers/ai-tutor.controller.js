@@ -6,7 +6,7 @@ const { generateLesson, makeLessonId, generateQuestion, makeQuestionId } = requi
 const RankingService = require('../services/ranking.service');
 const { awardChestnuts } = require('../services/reward.service');
 
-const LESSON_GENERATION_VERSION = 7;
+const LESSON_GENERATION_VERSION = 8;
 const isUsableLesson = lesson => lesson?.generationVersion === LESSON_GENERATION_VERSION
   && Array.isArray(lesson.questions)
   && lesson.questions.length === 5

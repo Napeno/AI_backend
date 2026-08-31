@@ -47,7 +47,7 @@ const tutorQuestionSchema = new mongoose.Schema({
 
 const aiTutorLessonSchema = new mongoose.Schema({
   lessonId: { type: String, required: true, unique: true },
-  generationVersion: { type: Number, default: 7 },
+  generationVersion: { type: Number, default: 8 },
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sessionId: { type: String, required: true },
   sourceQuestionId: { type: String, required: true },

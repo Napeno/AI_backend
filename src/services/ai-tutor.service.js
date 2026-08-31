@@ -32,6 +32,146 @@ const algebraData = sourceText => extractBinomialSquare(sourceText);
 const topicAlgebraData = sourceText => /hằng\s*đẳng\s*thức|hang\s*dang\s*thuc/i.test(String(sourceText || ''))
   ? extractBinomialSquare('(a + 2)^2')
   : null;
+const linearEquationData = sourceText => {
+  const match = String(sourceText || '').match(/([+-]?\s*\d+(?:[.,]\d+)?)\s*x\s*([+-]\s*\d+(?:[.,]\d+)?)\s*x\s*=\s*([+-]?\s*\d+(?:[.,]\d+)?)/i);
+  if (!match) return null;
+  const coefficient = value => Number(String(value).replace(',', '.').replace(/\s+/g, ''));
+  const first = coefficient(match[1]);
+  const second = coefficient(match[2]);
+  const right = coefficient(match[3]);
+  const total = first + second;
+  const solution = right / total;
+  return { first, second, right, total, solution, solutionText: Number.isInteger(solution) ? String(solution) : `${right}/${total}`, expression: `${first}x + ${second}x = ${right}` };
+};
+const chemistryEquation = sourceText => {
+  const source = String(sourceText || '').replace(/\s+/g, '');
+  if (/H2\+O2[-=]>H2O/i.test(source)) return { equation: 'H₂ + O₂ → H₂O', balanced: '2H₂ + O₂ → 2H₂O', ratio: '2 : 1 : 2', reactants: ['H₂', 'O₂'], product: 'H₂O' };
+  if (/Al\+O2[-=]>Al2O3/i.test(source)) return { equation: 'Al + O₂ → Al₂O₃', balanced: '4Al + 3O₂ → 2Al₂O₃', ratio: '4 : 3 : 2', reactants: ['Al', 'O₂'], product: 'Al₂O₃' };
+  return null;
+};
+const isCircuitSource = sourceText => /(?:mạch điện|điện trở|cường độ dòng điện|hiệu điện thế|\b[UIR]\d+\b|nhánh song song|nối tiếp)/i.test(String(sourceText || ''));
+const sourceQuestion = (sourceText, index, language = 'vi') => {
+  const linear = linearEquationData(sourceText);
+  if (linear) return linearQuestion(linear, index, language);
+  const algebra = algebraData(sourceText) || topicAlgebraData(sourceText);
+  if (algebra) return algebraQuestion(algebra, index, language);
+  const chemistry = chemistryEquation(sourceText);
+  if (chemistry) return chemistryQuestion(chemistry, index, language);
+  if (isCircuitSource(sourceText)) return circuitQuestion(sourceText, index, language);
+  return null;
+};
+
+const linearTutorSteps = (data, index, language = 'vi') => {
+  const vi = language === 'vi';
+  const steps = [
+    [`Từ phương trình ${data.expression}, gom các hạng tử đồng dạng: ${data.first}x + ${data.second}x = ${data.total}x.`, 'Vế trái sau khi rút gọn', `${data.total}x`],
+    [`Phương trình sau khi rút gọn là ${data.total}x = ${data.right}.`, 'Phương trình mới', `${data.total}x = ${data.right}`],
+    [`Chia hai vế cho ${data.total}: x = ${data.solutionText}.`, 'Giá trị của x', data.solutionText],
+  ];
+  return steps.map(([explanation, label, answer], stepIndex) => mathTokenStep(
+    `s${stepIndex + 1}`,
+    vi ? ['Gom hạng tử đồng dạng', 'Rút gọn phương trình', 'Tìm giá trị x'][stepIndex] : ['Combine like terms', 'Simplify the equation', 'Find x'][stepIndex],
+    explanation,
+    label,
+    `answer-${stepIndex + 1}`,
+    [[`answer-${stepIndex + 1}`, answer, stepIndex === 2 ? 'number' : 'variable'], [`wrong-${stepIndex + 1}`, stepIndex === 0 ? `${data.first * data.second}x` : stepIndex === 1 ? `${data.total}x = ${data.right + 1}` : String(data.total / data.right), 'variable'], [`source-${stepIndex + 1}`, data.expression, 'text']],
+  ));
+};
+const linearQuestion = (data, index, language = 'vi') => {
+  const tasks = language === 'vi'
+    ? [
+      [`Trong ${data.expression}, tổng các hệ số của x là bao nhiêu?`, [String(data.total), String(data.first * data.second), String(data.right), '1']],
+      [`Sau khi thu gọn ${data.expression}, phương trình trở thành gì?`, [`${data.total}x = ${data.right}`, `${data.first}x = ${data.right}`, `x = ${data.right}`, `${data.total}x = ${data.right + 1}`]],
+      [`Từ ${data.total}x = ${data.right}, cần chia hai vế cho số nào?`, [String(data.total), String(data.right), String(data.first), '2']],
+      [`Nghiệm của ${data.expression} là bao nhiêu?`, [data.solutionText, String(data.total / data.right), String(data.right), String(data.total)]],
+      [`Phép kiểm tra nào xác nhận x = ${data.solutionText}?`, [`${data.first}(${data.solutionText}) + ${data.second}(${data.solutionText}) = ${data.right}`, `${data.first} + ${data.second} = ${data.right}`, `${data.total} + ${data.solutionText} = ${data.right}`, `${data.first}(${data.right}) = ${data.solutionText}`]],
+    ]
+    : [
+      [`What is the sum of the coefficients of x in ${data.expression}?`, [String(data.total), String(data.first * data.second), String(data.right), '1']],
+      [`What does ${data.expression} become after simplifying?`, [`${data.total}x = ${data.right}`, `${data.first}x = ${data.right}`, `x = ${data.right}`, `${data.total}x = ${data.right + 1}`]],
+      [`From ${data.total}x = ${data.right}, which number divides both sides?`, [String(data.total), String(data.right), String(data.first), '2']],
+      [`What is the solution of ${data.expression}?`, [data.solutionText, String(data.total / data.right), String(data.right), String(data.total)]],
+      [`Which check confirms x = ${data.solutionText}?`, [`${data.first}(${data.solutionText}) + ${data.second}(${data.solutionText}) = ${data.right}`, `${data.first} + ${data.second} = ${data.right}`, `${data.total} + ${data.solutionText} = ${data.right}`, `${data.first}(${data.right}) = ${data.solutionText}`]],
+    ];
+  const [prompt, optionTexts] = tasks[index] || tasks[0];
+  return {
+    id: `q${index + 1}`,
+    title: language === 'vi' ? `Giải ${data.expression} · Câu ${index + 1}` : `Solve ${data.expression} · Question ${index + 1}`,
+    prompt,
+    visual: { kind: 'none' },
+    interactionType: 'math_tokens',
+    options: optionTexts.map((optionText, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text: optionText })),
+    correctOptionId: 'A',
+    tutorSteps: linearTutorSteps(data, index, language),
+  };
+};
+const chemistryTutorSteps = (data, index, language = 'vi') => {
+  const steps = language === 'vi'
+    ? [`Đề bài có ${data.reactants.join(' và ')} tạo thành ${data.product}.`, 'Đặt hệ số trước chất để số nguyên tử mỗi nguyên tố ở hai vế bằng nhau.', `Kiểm tra lại: ${data.balanced}.`]
+    : [`The problem has ${data.reactants.join(' and ')} forming ${data.product}.`, 'Place coefficients so each element has the same atom count on both sides.', `Check again: ${data.balanced}.`];
+  return steps.map((explanation, stepIndex) => mathTokenStep(
+    `s${stepIndex + 1}`,
+    language === 'vi' ? ['Xác định chất', 'Cân bằng nguyên tử', 'Kiểm tra phương trình'][stepIndex] : ['Identify substances', 'Balance atoms', 'Check the equation'][stepIndex],
+    explanation,
+    language === 'vi' ? ['Chất tham gia', 'Hệ số', 'Phương trình cân bằng'][stepIndex] : ['Reactants', 'Coefficients', 'Balanced equation'][stepIndex],
+    `answer-${stepIndex + 1}`,
+    [[`answer-${stepIndex + 1}`, [data.reactants.join(' + '), data.ratio, data.balanced][stepIndex], 'text'], [`wrong-${stepIndex + 1}`, data.equation, 'text']],
+  ));
+};
+const chemistryQuestion = (data, index, language = 'vi') => {
+  const tasks = language === 'vi'
+    ? [
+      [`Trong ${data.equation}, các chất tham gia là gì?`, [data.reactants.join(' và '), data.product, 'H₂O và O₂', 'Al và H₂O']],
+      [`Khi cân bằng ${data.equation}, cần thay đổi điều gì?`, ['Hệ số trước chất', 'Chỉ số nhỏ trong công thức', 'Ký hiệu nguyên tố', 'Tên chất']],
+      [`Tỉ lệ hệ số của phương trình ${data.balanced} là gì?`, [data.ratio, '1 : 1 : 1', '1 : 2 : 1', '2 : 2 : 1']],
+      [`Phương trình cân bằng đúng là gì?`, [data.balanced, data.equation, data.balanced.replace(/2/g, '1'), `${data.reactants[0]} + 2${data.reactants[1]} → ${data.product}`]],
+      [`Sau khi cân bằng, cần kiểm tra điều gì?`, ['Số nguyên tử mỗi nguyên tố ở hai vế bằng nhau', 'Đổi chỉ số trong công thức', 'Bỏ một chất tham gia', 'Đổi mũi tên phản ứng']],
+    ]
+    : [
+      [`Which are the reactants in ${data.equation}?`, [data.reactants.join(' and '), data.product, 'H₂O and O₂', 'Al and H₂O']],
+      [`When balancing ${data.equation}, what should change?`, ['Coefficients before substances', 'Subscripts in formulas', 'Element symbols', 'Substance names']],
+      [`What is the coefficient ratio in ${data.balanced}?`, [data.ratio, '1 : 1 : 1', '1 : 2 : 1', '2 : 2 : 1']],
+      ['Which is the balanced equation?', [data.balanced, data.equation, data.balanced.replace(/2/g, '1'), `${data.reactants[0]} + 2${data.reactants[1]} → ${data.product}`]],
+      ['What should be checked after balancing?', ['Each element has the same atom count on both sides', 'Change formula subscripts', 'Remove a reactant', 'Change the reaction arrow']],
+    ];
+  const [prompt, optionTexts] = tasks[index] || tasks[0];
+  return { id: `q${index + 1}`, title: language === 'vi' ? `Cân bằng ${data.equation} · Câu ${index + 1}` : `Balance ${data.equation} · Question ${index + 1}`, prompt, visual: { kind: 'none' }, interactionType: 'math_tokens', options: optionTexts.map((text, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text })), correctOptionId: 'A', tutorSteps: chemistryTutorSteps(data, index, language) };
+};
+const circuitQuestion = (sourceText, index, language = 'vi') => {
+  const vi = language === 'vi';
+  const tasks = vi
+    ? [
+      [`Trong câu hỏi “${sourceText}”, công thức tính dòng qua R4 là gì?`, ['I₄ = U₄/R₄', 'I₄ = U₄ × R₄', 'I₄ = R₄/U₄', 'I₄ = U₄ + R₄']],
+      ['Nếu R4 song song với nhánh R234, đại lượng nào bằng nhau?', ['U₄ = U₂₃₄', 'I₄ = I₂₃₄ luôn luôn', 'R₄ = R₂₃₄', 'U₄ = 0']],
+      ['Muốn tính I4 theo định luật Ôm, cần biết những đại lượng nào?', ['U₄ và R₄', 'I4 và U4', 'R4 và I4', 'Chỉ cần U4']],
+      ['Sau khi tìm U₄ = U₂₃₄, bước tiếp theo là gì?', ['Thay U₄ và R₄ vào I₄ = U₄/R₄', 'Cộng U₄ với R₄', 'Chia R₄ cho I₄', 'Bỏ qua R₄']],
+      ['Cách kiểm tra kết quả I4 hợp lý là gì?', ['Thay ngược I₄ vào U₄ = I₄R₄', 'Đổi R4 thành U4', 'Cộng các điện trở song song', 'So sánh với số 0']],
+    ]
+    : [
+      [`For “${sourceText}”, what formula gives the current through R4?`, ['I₄ = U₄/R₄', 'I₄ = U₄ × R₄', 'I₄ = R₄/U₄', 'I₄ = U₄ + R₄']],
+      ['If R4 is parallel to branch R234, which quantity is equal?', ['U₄ = U₂₃₄', 'I₄ = I₂₃₄ always', 'R₄ = R₂₃₄', 'U₄ = 0']],
+      ['Which quantities are needed to calculate I4 using Ohm’s law?', ['U₄ and R₄', 'I4 and U4', 'R4 and I4', 'Only U4']],
+      ['After finding U₄ = U₂₃₄, what comes next?', ['Substitute U₄ and R₄ into I₄ = U₄/R₄', 'Add U₄ and R₄', 'Divide R₄ by I₄', 'Ignore R₄']],
+      ['How can the I4 result be checked?', ['Substitute I₄ into U₄ = I₄R₄', 'Swap R4 and U4', 'Add parallel resistances', 'Compare it with zero']],
+    ];
+  const [prompt, optionTexts] = tasks[index] || tasks[0];
+  const explanations = vi
+    ? [`Bám sát câu hỏi về R4: dòng điện được tính bằng hiệu điện thế chia cho điện trở.`, 'Trong mạch song song, hiệu điện thế hai nhánh bằng nhau nên U₄ = U₂₃₄.', 'Định luật Ôm cho nhánh R4 dùng đúng U₄ và R₄.', 'Thay các đại lượng đã biết vào công thức I₄ = U₄/R₄.', 'Kiểm tra bằng cách nhân I₄ với R₄ và so sánh với U₄.']
+    : ['For R4, current equals voltage divided by resistance.', 'In a parallel circuit, branch voltages are equal, so U₄ = U₂₃₄.', 'Ohm’s law for branch R4 uses U₄ and R₄.', 'Substitute the known values into I₄ = U₄/R₄.', 'Check by multiplying I₄ by R₄ and comparing it with U₄.'];
+  const explanation = explanations[index] || explanations[0];
+  const stepExplanations = vi
+    ? [
+      `${explanation} Hãy xác định đúng đại lượng cần tìm trong câu này.`,
+      `Áp dụng đúng mối liên hệ của mạch điện: ${index === 1 ? 'mạch song song có cùng hiệu điện thế.' : 'I₄ = U₄/R₄.'}`,
+      `Đối chiếu kết quả với dữ kiện của R4 và nhánh R234 trong đề bài.`,
+    ]
+    : [
+      `${explanation} Identify the quantity requested in this question.`,
+      `Use the circuit relationship correctly: ${index === 1 ? 'parallel branches have the same voltage.' : 'I₄ = U₄/R₄.'}`,
+      'Compare the result with the R4 and R234 data in the problem.',
+    ];
+  return { id: `q${index + 1}`, title: vi ? `Tính dòng qua R4 · Câu ${index + 1}` : `Current through R4 · Question ${index + 1}`, prompt, visual: { kind: 'none' }, interactionType: 'math_tokens', options: optionTexts.map((optionText, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text: optionText })), correctOptionId: 'A', tutorSteps: stepExplanations.map((stepExplanation, stepIndex) => ({ id: `s${stepIndex + 1}`, title: vi ? `Bước ${stepIndex + 1}` : `Step ${stepIndex + 1}`, explanation: stepExplanation, analysis: stepExplanation, easierExample: { prompt: vi ? `Ví dụ dễ hơn: với U₄ = 12 V và R₄ = 6 Ω, tính I₄ theo I₄ = U₄/R₄.` : 'Easier example: with U₄ = 12 V and R₄ = 6 Ω, calculate I₄ using I₄ = U₄/R₄.', answer: '2 A', hint: vi ? 'Chia hiệu điện thế cho điện trở.' : 'Divide voltage by resistance.' }, blanks: [{ id: `s${stepIndex + 1}-blank`, label: vi ? 'Đáp án' : 'Answer', expectedTokenId: `answer-${stepIndex + 1}` }], tokens: [{ id: `answer-${stepIndex + 1}`, label: optionTexts[0], type: 'text' }, { id: `wrong-${stepIndex + 1}`, label: optionTexts[1], type: 'text' }] })) };
+};
 const mathTokenStep = (id, title, explanation, blankLabel, expectedTokenId, tokens) => ({
   id,
   title,
@@ -200,19 +340,18 @@ const fallbackLesson = ({ sourceText = '', sourceExpression = '', questionId = '
     ? [`${anchor} cho biết dữ kiện nào cần dùng?`, `${anchor} yêu cầu tìm đại lượng hoặc ý chính nào?`, `${anchor} cần áp dụng công thức/khái niệm nào?`, `${anchor} cần thực hiện phép tính hoặc lập luận nào tiếp theo?`, `${anchor} cần kiểm tra kết quả cuối cùng như thế nào?`]
     : [`What data must be used from this problem? ${anchor}`, `What quantity or main idea must be found in this problem? ${anchor}`, `Which formula or concept applies to this problem? ${anchor}`, `What calculation or reasoning comes next for this problem? ${anchor}`, `How should the result of this problem be checked? ${anchor}`];
   const sourceOption = sourceText ? text(sourceText, language === 'vi' ? 'Dữ kiện trong đề bài' : 'Data from the problem', 180) : language === 'vi' ? 'Dữ kiện trong đề bài' : 'Data from the problem';
-  const algebra = algebraData(sourceExpression || sourceText) || topicAlgebraData(sourceText);
   const questions = Array.from({ length: 5 }, (_, index) => {
-    const generated = algebra ? algebraQuestion(algebra, index, language) : null;
+    const generated = sourceQuestion(sourceExpression || sourceText, index, language);
     return {
       ...(generated || {
         id: `q${index + 1}`,
-        title: language === 'vi' ? `Làm rõ yêu cầu · Câu ${index + 1}` : `Clarify the task · Question ${index + 1}`,
+        title: language === 'vi' ? `Luyện tập theo đề · Câu ${index + 1}` : `Practice from the problem · Question ${index + 1}`,
         prompt: prompts[index],
       }),
       id: `q${index + 1}`,
       // Keep offline fallback text-only; visuals are accepted only from Gemini.
       visual: { kind: 'none' },
-      interactionType,
+      interactionType: generated?.interactionType || interactionType,
       options: generated?.options || [
         { id: 'A', text: sourceOption },
         { id: 'B', text: language === 'vi' ? 'Một thông tin không xuất hiện trong đề' : 'Information not present in the problem' },
@@ -220,7 +359,7 @@ const fallbackLesson = ({ sourceText = '', sourceExpression = '', questionId = '
         { id: 'D', text: language === 'vi' ? 'Một nội dung không liên quan đến đề' : 'Content unrelated to the problem' },
       ],
       correctOptionId: 'A',
-      tutorSteps: algebra ? algebraTutorSteps(algebra, index) : genericTutorSteps({ sourceText, sourceOption, language }),
+      tutorSteps: generated?.tutorSteps || genericTutorSteps({ sourceText, sourceOption, language }),
     };
   });
   return { sourceQuestionId: questionId, sourceText, questions };
@@ -254,6 +393,8 @@ const normalizeStep = (raw, index, fallback, sourceText, language) => {
 
 const normalizeQuestion = (raw, index, sourceText, language, context = {}) => {
   const fallback = fallbackLesson({ sourceText, sourceExpression: context.sourceExpression, language, subjectArea: context.subjectArea, course: context.course }).questions[index];
+  const deterministic = sourceQuestion(context.sourceExpression || sourceText, index, language);
+  if (deterministic) return { ...deterministic, id: id(raw?.id) || deterministic.id };
   const options = Array.isArray(raw?.options) ? raw.options.slice(0, 4).map((option, optionIndex) => ({ id: String(option?.id || String.fromCharCode(65 + optionIndex)).slice(0, 2), text: text(option?.text, fallback.options[optionIndex]?.text || 'Lựa chọn', 180) })) : fallback.options;
   const validIds = new Set(options.map(option => option.id));
   const rawPrompt = text(raw?.prompt, sourceText || fallback.prompt, 900);

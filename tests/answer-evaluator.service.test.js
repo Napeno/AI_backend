@@ -48,3 +48,21 @@ test('recognizes an unaccented Vietnamese request for a subquestion', async () =
   assert.equal(context.activeQuestionId, 'c');
   assert.equal(context.suggestedQuestionId, 'c');
 });
+
+test('keeps the original image context when a student asks a text follow-up', () => {
+  const conversation = {
+    problemContext: {
+      sourceText: 'Đề bài trong ảnh',
+      sourceImage: { url: 'https://example.com/problem.jpg' },
+      questions: [{ id: 'c', prompt: 'Câu c trong ảnh' }],
+      suggestedQuestionId: 'c',
+      activeQuestionId: 'c',
+    },
+    markModified() {},
+  };
+
+  setTextProblemContext(conversation, 'Câu c có phải là U4/R4?');
+  assert.equal(conversation.problemContext.sourceText, 'Đề bài trong ảnh');
+  assert.equal(conversation.problemContext.sourceImage.url, 'https://example.com/problem.jpg');
+  assert.equal(conversation.problemContext.activeQuestionId, 'c');
+});

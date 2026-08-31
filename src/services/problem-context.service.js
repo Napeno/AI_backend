@@ -24,6 +24,20 @@ const setTextProblemContext = (conversation, sourceText) => {
   const text = String(sourceText || '').trim();
   if (!text) return toPublicProblemContext(conversation.problemContext);
 
+  // A text follow-up after uploading a problem image is still about that
+  // image. Keep the extracted problem and image instead of replacing them
+  // with a short follow-up such as "Câu c...".
+  if (conversation.problemContext?.sourceImage?.url && conversation.problemContext.questions?.length) {
+    const requestedQuestionId = getQuestionIdFromText(text);
+    const requestedQuestion = conversation.problemContext.questions.find(question => question.id === requestedQuestionId);
+    if (requestedQuestion) {
+      conversation.problemContext.suggestedQuestionId = requestedQuestion.id;
+      conversation.problemContext.activeQuestionId = requestedQuestion.id;
+      conversation.markModified?.('problemContext');
+    }
+    return toPublicProblemContext(conversation.problemContext);
+  }
+
   conversation.problemContext = {
     sourceText: text,
     questions: [{ id: 'main', prompt: text }],
@@ -103,6 +117,15 @@ const setImageProblemContext = async (conversation, { sourceText, image, languag
 
 const ensureProblemContext = async (conversation, language = 'en') => {
   if (conversation.problemContext?.questions?.length) {
+    const sourceImageMessage = (conversation.history || []).find(message => message.parts?.some(part => part.image?.url));
+    if (!conversation.problemContext.sourceImage?.url && sourceImageMessage) {
+      const image = sourceImageMessage.parts.find(part => part.image?.url)?.image;
+      await setImageProblemContext(conversation, {
+        sourceText: sourceImageMessage.parts.map(part => part.text || '').join('\n').trim(),
+        image,
+        language,
+      });
+    }
     const requestedQuestionId = getQuestionIdFromText(conversation.problemContext.sourceText);
     const requestedQuestion = conversation.problemContext.questions.find(question => question.id === requestedQuestionId);
     if (requestedQuestion) {

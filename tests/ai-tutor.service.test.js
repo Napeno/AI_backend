@@ -146,3 +146,32 @@ test('falls back to the original problem when Gemini returns an unrelated questi
   assert.equal(lesson.questions[0].options[0].text, sourceText);
   assert.match(lesson.questions[0].tutorSteps[0].explanation, /vận tốc 5 m\/s trong 3 giây/);
 });
+
+test('restores five source-specific questions for a linear equation even without a selected course', () => {
+  const lesson = fallbackLesson({ sourceText: 'giải giúp mình bài 2x + 5x = 32', language: 'vi', subjectArea: 'natural_sciences' });
+
+  assert.equal(lesson.questions.length, 5);
+  assert.ok(lesson.questions.every(question => question.interactionType === 'math_tokens'));
+  assert.ok(lesson.questions.every(question => !/Làm rõ yêu cầu|đại lượng hoặc ý chính nào/.test(question.title + question.prompt)));
+  assert.match(lesson.questions[0].prompt, /2x \+ 5x/);
+  assert.match(lesson.questions[3].prompt, /Nghiệm/);
+  assert.match(lesson.questions[0].tutorSteps[0].explanation, /2x \+ 5x = 32/);
+});
+
+test('restores five circuit questions around U4, R4, and U234', () => {
+  const lesson = fallbackLesson({ sourceText: 'Câu c có phải là U4/R4, U4 sẽ bằng U234', language: 'vi', subjectArea: 'natural_sciences', course: 'natural_sciences' });
+
+  assert.equal(lesson.questions.length, 5);
+  assert.match(lesson.questions[0].options[0].text, /I₄ = U₄\/R₄/);
+  assert.match(lesson.questions[1].options[0].text, /U₄ = U₂₃₄/);
+  assert.ok(lesson.questions.every(question => question.options[0].text.includes('U')));
+  assert.ok(lesson.questions.every(question => question.tutorSteps.length >= 3));
+});
+
+test('restores five chemistry questions for a balancing exercise', () => {
+  const lesson = fallbackLesson({ sourceText: 'cân bằng PTHH sau: H2 + O2 -> H2O', language: 'vi', subjectArea: 'natural_sciences', course: 'natural_sciences' });
+
+  assert.equal(lesson.questions.length, 5);
+  assert.match(lesson.questions[3].options[0].text, /2H₂ \+ O₂ → 2H₂O/);
+  assert.ok(lesson.questions.every(question => !question.title.includes('Làm rõ yêu cầu')));
+});
