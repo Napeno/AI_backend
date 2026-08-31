@@ -259,11 +259,13 @@ const completeStep = async (req, res) => {
     lesson: publicLesson(lesson, { revealCorrect: true, unlockedStep: lesson.currentStepIndex }),
     });
   }
-  lesson.currentStepIndex = Math.min(lesson.currentStepIndex + 1, question.tutorSteps.length - 1);
-  if (lesson.currentStepIndex >= question.tutorSteps.length - 1 && lesson.currentQuestionIndex >= lesson.questions.length - 1) {
+  const completedFinalStep = lesson.currentStepIndex >= question.tutorSteps.length - 1;
+  if (completedFinalStep && lesson.currentQuestionIndex >= lesson.questions.length - 1) {
     lesson.completed = true; lesson.completedAt = new Date();
-  } else if (lesson.currentStepIndex >= question.tutorSteps.length - 1) {
+  } else if (completedFinalStep) {
     lesson.currentQuestionIndex += 1; lesson.currentStepIndex = -1;
+  } else {
+    lesson.currentStepIndex += 1;
   }
   await lesson.save();
   const activeQuestion = lesson.questions[lesson.currentQuestionIndex];
