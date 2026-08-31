@@ -38,7 +38,8 @@ const login = async (req, res) => {
         points: user.points || 0,
         rank: user.rank || 'iron',
         avatar: user.avatar || 'default',
-        ownedAvatars: user.ownedAvatars || ['default']
+        ownedAvatars: user.ownedAvatars || ['default'],
+        favoriteGifts: user.favoriteGifts || []
       },
     });
   } catch (err) {

@@ -17,6 +17,16 @@ const isUsableLesson = lesson => lesson?.generationVersion === LESSON_GENERATION
     && question.options.length === 4
     && Array.isArray(question.tutorSteps)
     && question.tutorSteps.length >= 3);
+const filterVisibleLessons = (lessons, activeSessions) => {
+  const seen = new Set();
+  return lessons.filter(lesson => {
+    if (!activeSessions.has(lesson.sessionId) || !isUsableLesson(lesson)) return false;
+    const key = `${lesson.sessionId}:${lesson.sourceQuestionId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 const publicInteraction = interaction => {
   if (!interaction) return null;
@@ -121,9 +131,15 @@ const previous = async (req, res) => {
 const listLessons = async (req, res) => {
   const lessons = await AiTutorLesson.find({ user: req.user._id })
     .sort({ updatedAt: -1 })
-    .select('lessonId sessionId sourceQuestionId sourceText subjectArea course educationLevel completed currentQuestionIndex questions createdAt updatedAt')
+    .select('lessonId sessionId sourceQuestionId sourceText subjectArea course educationLevel generationVersion completed currentQuestionIndex questions createdAt updatedAt')
     .lean();
-  return res.json({ lessons: lessons.map(lesson => ({
+  const sessionIds = [...new Set(lessons.map(lesson => lesson.sessionId).filter(Boolean))];
+  const conversations = await Conversation.find({ user: req.user._id, sessionId: { $in: sessionIds } })
+    .select('sessionId')
+    .lean();
+  const activeSessions = new Set(conversations.map(conversation => conversation.sessionId));
+  const visibleLessons = filterVisibleLessons(lessons, activeSessions);
+  return res.json({ lessons: visibleLessons.map(lesson => ({
     lessonId: lesson.lessonId,
     sessionId: lesson.sessionId,
     sourceQuestionId: lesson.sourceQuestionId,
@@ -285,4 +301,4 @@ const generate = async (req, res) => {
 };
 const legacyAnswer = async (req, res) => res.status(410).json({ error: 'Hãy mở AI Tutor từ một bài trong Chat.' });
 
-module.exports = { createLesson, getLesson, previous, listLessons, answer, completeStep, analytics, generate, answerLegacy: legacyAnswer };
+module.exports = { createLesson, getLesson, previous, listLessons, answer, completeStep, analytics, generate, answerLegacy: legacyAnswer, filterVisibleLessons };

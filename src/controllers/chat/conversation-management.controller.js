@@ -1,4 +1,5 @@
 const Conversation = require('../../models/conversation.model');
+const AiTutorLesson = require('../../models/ai-tutor-question.model');
 const InterventionService = require('../../services/intervention.service');
 const InterventionQuizService = require('../../services/intervention-quiz.service');
 const { getMessages } = require('./utils');
@@ -156,6 +157,8 @@ const deleteConversation = async (req, res) => {
     if (result.deletedCount === 0) {
       return res.status(404).json({ message: 'Conversation not found' });
     }
+
+    await AiTutorLesson.deleteMany({ user: req.user._id, sessionId });
     
     res.json({ message: 'Conversation deleted successfully' });
   } catch (error) {

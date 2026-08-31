@@ -49,6 +49,7 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ['default'],
   }],
+  favoriteGifts: [{ type: String }],
   purchasedAvatars: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Avatar',

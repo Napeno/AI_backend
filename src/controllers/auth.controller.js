@@ -16,6 +16,7 @@ const getCurrentUser = (req, res) => {
       rank: user.rank || 'bronze',
       avatar: user.avatar || 'default',
       ownedAvatars: user.ownedAvatars || ['default'],
+      favoriteGifts: user.favoriteGifts || [],
     },
   });
 };
