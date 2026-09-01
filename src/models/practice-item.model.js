@@ -38,6 +38,35 @@ const practiceTurnSchema = new mongoose.Schema({
   },
 }, { _id: false });
 
+const practiceOptionSchema = new mongoose.Schema({
+  id: { type: String, required: true, maxlength: 20 },
+  text: { type: String, required: true, maxlength: 600 },
+}, { _id: false });
+
+const practiceVariantSchema = new mongoose.Schema({
+  questionType: {
+    type: String,
+    enum: ['multiple_choice', 'true_false', 'fill_blank', 'long_answer'],
+    required: true,
+  },
+  prompt: { type: String, required: true, maxlength: 2000 },
+  hint: { type: String, required: true, maxlength: 1200 },
+  answerGuide: { type: String, required: false, maxlength: 2000 },
+  options: { type: [practiceOptionSchema], default: [] },
+  correctOptionId: { type: String, required: false, maxlength: 20 },
+  correctAnswer: { type: Boolean, required: false },
+  turns: { type: [practiceTurnSchema], default: [] },
+  incorrectAttempts: { type: Number, default: 0 },
+  status: {
+    type: String,
+    enum: ['new', 'needs_review', 'reviewed', 'mastered'],
+    default: 'new',
+  },
+  reviewCount: { type: Number, default: 0 },
+  nextReviewAt: { type: Date, default: Date.now },
+  lastReviewedAt: { type: Date, required: false },
+}, { _id: false });
+
 const practiceSchema = new mongoose.Schema({
   prompt: { type: String, required: false },
   hint: { type: String, required: false },
@@ -49,6 +78,10 @@ const practiceSchema = new mongoose.Schema({
   incorrectAttempts: {
     type: Number,
     default: 0,
+  },
+  variants: {
+    type: [practiceVariantSchema],
+    default: [],
   },
 }, { _id: false });
 

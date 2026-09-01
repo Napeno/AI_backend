@@ -1,6 +1,7 @@
 const express = require('express');
 const {
   deleteItem,
+  generateItem,
   getItem,
   getItems,
   getRecommendation,
@@ -12,6 +13,7 @@ const router = express.Router();
 router.get('/recommendation', getRecommendation);
 router.get('/items', getItems);
 router.get('/items/:itemId', getItem);
+router.post('/items/:itemId/generate', generateItem);
 router.post('/items/:itemId/attempt', submitAttempt);
 router.delete('/items/:itemId', deleteItem);
 

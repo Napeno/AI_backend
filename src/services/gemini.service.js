@@ -33,6 +33,10 @@ const rotateApiKey = (triedKeyIndexes) => {
   return false;
 };
 
+const getErrorStatus = error => Number(error?.status || error?.response?.status || 0);
+const isRetryableStatus = status => [408, 429, 500, 502, 503, 504].includes(status);
+const isInvalidApiKeyError = error => /api key not valid|invalid api key|api_key_invalid/i.test(String(error?.message || ''));
+
 const makeRequestWithRetry = async (requestFn, maxRetries = Math.max(API_KEYS.length, 1)) => {
   const triedKeyIndexes = new Set();
 
@@ -54,7 +58,8 @@ const makeRequestWithRetry = async (requestFn, maxRetries = Math.max(API_KEYS.le
 
       throw new Error('Invalid response format from Gemini API');
     } catch (error) {
-      if (error.status !== 429) throw error;
+      const status = getErrorStatus(error);
+      if (!isRetryableStatus(status) && !(status === 400 && isInvalidApiKeyError(error))) throw error;
 
       triedKeyIndexes.add(activeKeyIndex);
       if (attempt < maxRetries && rotateApiKey(triedKeyIndexes)) {
@@ -63,7 +68,7 @@ const makeRequestWithRetry = async (requestFn, maxRetries = Math.max(API_KEYS.le
           model: GEMINI_MODEL,
           failedKeyNumber: [...triedKeyIndexes].at(-1) + 1,
           nextKeyNumber: getActiveKeyNumber(),
-          status: error.status,
+          status,
         }));
         continue;
       }

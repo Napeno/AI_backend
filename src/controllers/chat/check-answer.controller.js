@@ -37,6 +37,10 @@ const checkAnswer = async (req, res, imageData = null) => {
 
   const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
   if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+  const latestModelMessage = [...conversation.history].reverse().find(message => message.role === 'model');
+  const followUpQuestion = latestModelMessage?.evaluationStatus
+    ? null
+    : latestModelMessage?.parts?.map(part => part.text || '').join('\n') || null;
 
   const entry = {
     role: 'check-answer',
@@ -53,6 +57,7 @@ const checkAnswer = async (req, res, imageData = null) => {
     answerImageUrl,
     language,
     course: conversation.course,
+    followUpQuestion,
   });
   const isCorrect = evaluation.status === 'correct' ? true : evaluation.status === 'incorrect' ? false : null;
   let responseText = evaluation.feedback;

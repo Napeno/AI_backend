@@ -41,7 +41,7 @@ const fallback = (language, questionId, message) => ({
   questionId: questionId || null,
 });
 
-const evaluateAnswer = async ({ conversation, answer = '', answerImageUrl = null, language = 'en', course = null }) => {
+const evaluateAnswer = async ({ conversation, answer = '', answerImageUrl = null, language = 'en', course = null, followUpQuestion = null, questionId = null }) => {
   await ensureProblemContext(conversation, language);
   const context = conversation.problemContext || {};
   const question = getActiveQuestion(context);
@@ -54,6 +54,8 @@ const evaluateAnswer = async ({ conversation, answer = '', answerImageUrl = null
     .slice(-3)
     .map(message => message.parts?.map(part => part.text || '').join('\n').slice(0, 500))
     .filter(Boolean);
+  const targetQuestion = followUpQuestion || question.prompt || question.sourceExpression;
+  const targetQuestionId = questionId || question.id;
   const prompt = `${language === 'vi' ? 'Bạn là evaluator chấm bài, không phải gia sư.' : 'You are a grading evaluator, not a tutor.'}
 ${language === 'vi' ? 'Chỉ trả JSON hợp lệ, không markdown.' : 'Return valid JSON only, no markdown.'}
 ${language === 'vi' ? 'Phản hồi ngắn tối đa 3 câu, bám đúng câu học sinh đang làm, không lạc sang môn khác.' : 'Keep feedback to at most 3 short sentences, stay with the selected question, and do not drift into other subjects.'}
@@ -63,6 +65,7 @@ ${language === 'vi' ? 'Bài làm có ý nghĩa là có phép tính, công thức
 ${language === 'vi' ? 'Schema:' : 'Schema:'} {"status":"correct|incorrect|uncertain","feedback":"","evidence":"","isMeaningfulAttempt":true}
 ${language === 'vi' ? 'Môn học:' : 'Subject:'} ${course || conversation.course || conversation.subjectArea || ''}
 ${language === 'vi' ? 'Ngữ cảnh đề:' : 'Problem context:'} ${JSON.stringify({ sourceText: context.sourceText, question })}
+${language === 'vi' ? 'Câu hỏi cần chấm:' : 'Question to grade:'} ${targetQuestion}
 ${language === 'vi' ? 'Các gợi ý liên quan:' : 'Relevant hints:'} ${relevantHints.join('\n') || '(none)'}
 ${language === 'vi' ? 'Câu trả lời/bài làm của học sinh:' : 'Student answer/work:'} ${answer || '(image only)'}`;
 
@@ -87,7 +90,7 @@ ${language === 'vi' ? 'Câu trả lời/bài làm của học sinh:' : 'Student 
     evidence: String(parsed.evidence || '').trim(),
     source: status === 'uncertain' ? 'uncertain' : 'gemini',
     isMeaningfulAttempt: parsed.isMeaningfulAttempt === true,
-    questionId: question.id,
+    questionId: targetQuestionId,
   };
   if (!result.feedback) {
     result.feedback = result.status === 'correct'

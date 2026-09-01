@@ -2,14 +2,17 @@ const PracticeItem = require('../models/practice-item.model');
 const User = require('../models/user.model');
 const mongoose = require('mongoose');
 const { awardChestnuts } = require('../services/reward.service');
+const RankingService = require('../services/ranking.service');
 const RULES = require('../config/intervention-rules.json');
 const {
   addAssistantTurn,
   addPracticeTurn,
   applyPracticeResult,
   canShowPracticeSolution,
-  ensurePractice,
+  ensurePracticeVariant,
   evaluatePracticeAttempt,
+  generatePracticeVariant,
+  QUESTION_TYPES,
   requestPracticeGuidance,
   toPublicPracticeItem,
 } = require('../services/practice.service');
@@ -26,7 +29,13 @@ const parsePagination = (value, fallback, maximum) => {
 const getRecommendation = async (req, res) => {
   try {
     const now = new Date();
-    const filter = { user: req.user._id, status: { $ne: 'mastered' } };
+    const filter = {
+      user: req.user._id,
+      $or: [
+        { status: { $ne: 'mastered' } },
+        { 'practice.variants': { $elemMatch: { status: { $ne: 'mastered' } } } },
+      ],
+    };
     let item = await PracticeItem.findOne({ ...filter, nextReviewAt: { $lte: now } }).sort({ nextReviewAt: 1 });
     item ||= await PracticeItem.findOne(filter).sort({ updatedAt: -1 });
 
@@ -34,7 +43,6 @@ const getRecommendation = async (req, res) => {
       return res.json({ recommendation: null });
     }
 
-    await ensurePractice(item, req.query.language || 'en');
     return res.json({ recommendation: toPublicPracticeItem(item) });
   } catch (error) {
     console.error('Error fetching practice recommendation:', error);
@@ -80,7 +88,6 @@ const getItem = async (req, res) => {
       return res.status(404).json({ message: 'Practice item not found' });
     }
 
-    await ensurePractice(item, req.query.language || 'en');
     return res.json({ item: toPublicPracticeItem(item) });
   } catch (error) {
     console.error('Error fetching practice item:', error);
@@ -91,8 +98,13 @@ const getItem = async (req, res) => {
 const submitAttempt = async (req, res) => {
   try {
     const action = ['attempt', 'hint', 'solution'].includes(req.body?.action) ? req.body.action : 'attempt';
+    const questionType = req.body?.questionType || 'long_answer';
     const answer = String(req.body?.answer || '').trim();
-    if (action === 'attempt' && (!answer || answer.length > 1200)) {
+    if (!QUESTION_TYPES.includes(questionType)) {
+      return res.status(400).json({ message: 'Invalid practice question type' });
+    }
+    const maxAnswerLength = questionType === 'fill_blank' ? 300 : 1200;
+    if (action === 'attempt' && (!answer || answer.length > maxAnswerLength)) {
       return res.status(400).json({ message: 'A practice answer is required' });
     }
 
@@ -101,25 +113,34 @@ const submitAttempt = async (req, res) => {
       return res.status(404).json({ message: 'Practice item not found' });
     }
 
-    await ensurePractice(item, req.body?.language || 'en');
-    if (action === 'solution' && !canShowPracticeSolution(item)) {
+    const variant = ensurePracticeVariant(item, questionType);
+    if (!variant) {
+      return res.status(400).json({ message: 'Please generate a practice question first' });
+    }
+    if (action === 'attempt' && questionType === 'multiple_choice' && !variant.options.some(option => option.id === answer)) {
+      return res.status(400).json({ message: 'Please choose one of the available options' });
+    }
+    if (action === 'attempt' && questionType === 'true_false' && !['true', 'false'].includes(answer)) {
+      return res.status(400).json({ message: 'Please choose True or False' });
+    }
+    if (action === 'solution' && !canShowPracticeSolution(item, variant)) {
       return res.status(400).json({ message: 'Complete two meaningful incorrect attempts before viewing the sample solution' });
     }
 
     const language = req.body?.language || 'en';
     let result;
     if (action === 'attempt') {
-      result = await evaluatePracticeAttempt(item, answer, language);
+      result = await evaluatePracticeAttempt(item, answer, language, questionType);
       if (!result) {
         return res.status(503).json({ message: language === 'vi' ? 'ThinkBridge chưa thể chấm bài lúc này. Em thử gửi lại sau ít phút nhé.' : 'ThinkBridge cannot grade this attempt right now. Please try again shortly.' });
       }
-      addPracticeTurn(item, { role: 'student', action, content: answer });
+      addPracticeTurn(item, { role: 'student', action, content: answer }, variant);
       if (result.isCorrect === false && result.isMeaningfulAttempt) {
-        item.practice.incorrectAttempts = Number(item.practice.incorrectAttempts || 0) + 1;
+        variant.incorrectAttempts = Number(variant.incorrectAttempts || 0) + 1;
       }
-      if (typeof result.isCorrect === 'boolean') applyPracticeResult(item, result.isCorrect);
+      if (typeof result.isCorrect === 'boolean') applyPracticeResult(item, result.isCorrect, new Date(), variant);
     } else {
-      result = await requestPracticeGuidance(item, action, '', language);
+      result = await requestPracticeGuidance(item, action, '', language, questionType);
       if (!result) {
         return res.status(503).json({ message: language === 'vi' ? 'ThinkBridge chưa thể tạo phản hồi lúc này. Em thử lại sau ít phút nhé.' : 'ThinkBridge cannot create a response right now. Please try again shortly.' });
       }
@@ -129,18 +150,36 @@ const submitAttempt = async (req, res) => {
         content: action === 'hint'
           ? (language === 'vi' ? 'Em muốn thêm một gợi ý.' : 'I would like another hint.')
           : (language === 'vi' ? 'Em muốn xem lời giải mẫu.' : 'I would like to see the sample solution.'),
-      });
+      }, variant);
     }
-    addAssistantTurn(item, action, result);
+    addAssistantTurn(item, action, result, variant);
     await item.save();
     let chestnutsAwarded = 0;
+    let pointsAwarded = 0;
+    let totalPoints = null;
     let totalChestnuts = null;
+    let currentRank = null;
     if (action === 'attempt' && result.isCorrect === true) {
       const user = await User.findById(req.user._id);
       if (user) {
-        const reward = await awardChestnuts(user, RULES.rewards.practiceCorrect, 'practice_correct', `practice-correct:${item._id}`);
+        const reward = await awardChestnuts(
+          user,
+          RULES.rewards.practiceCorrect,
+          'practice_correct',
+          `practice-correct:${item._id}:${questionType}:${variant.prompt}`
+        );
         chestnutsAwarded = reward.awarded ? RULES.rewards.practiceCorrect : 0;
-        totalChestnuts = reward.balance;
+        if (reward.awarded) {
+          const pointsResult = RankingService.awardPoints(user, 25, 'practice_correct');
+          pointsAwarded = pointsResult.pointsAwarded;
+          await user.save();
+        }
+        const updatedUser = reward.awarded
+          ? user
+          : await User.findById(req.user._id).select('chestnuts points rank');
+        totalChestnuts = updatedUser?.chestnuts ?? reward.balance ?? null;
+        totalPoints = updatedUser?.points ?? null;
+        currentRank = updatedUser?.rank ?? null;
       }
     }
 
@@ -150,10 +189,30 @@ const submitAttempt = async (req, res) => {
       item: toPublicPracticeItem(item),
       chestnutsAwarded,
       totalChestnuts,
+      pointsAwarded,
+      totalPoints,
+      currentRank,
     });
   } catch (error) {
     console.error('Error submitting practice attempt:', error);
     return res.status(500).json({ message: 'Unable to check practice attempt' });
+  }
+};
+
+const generateItem = async (req, res) => {
+  try {
+    const questionType = req.body?.questionType;
+    if (!QUESTION_TYPES.includes(questionType)) {
+      return res.status(400).json({ message: 'Invalid practice question type' });
+    }
+    const item = await getItemForUser(req.user._id, req.params.itemId);
+    if (!item) return res.status(404).json({ message: 'Practice item not found' });
+
+    const variant = await generatePracticeVariant(item, questionType, req.body?.language || 'en');
+    return res.json({ item: toPublicPracticeItem(item), questionType: variant.questionType });
+  } catch (error) {
+    console.error('Error generating practice question:', error);
+    return res.status(503).json({ message: req.body?.language === 'vi' ? 'ThinkBridge chưa thể tạo bài ôn lúc này. Em thử lại sau nhé.' : 'ThinkBridge cannot create this practice question right now. Please try again.' });
   }
 };
 
@@ -175,6 +234,7 @@ const deleteItem = async (req, res) => {
 
 module.exports = {
   deleteItem,
+  generateItem,
   getItem,
   getItems,
   getRecommendation,
