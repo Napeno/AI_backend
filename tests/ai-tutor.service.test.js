@@ -48,10 +48,9 @@ test('always gives every supported learning mode a usable continuation interacti
   });
 });
 
-test('keeps Gemini SVG visuals while stripping executable content', () => {
+test('removes all AI tutor visuals', () => {
   const lesson = sanitizeLesson({ questions: [{ visual: { kind: 'svg', spec: { svg: '<svg><rect /></svg><script>alert(1)</script>' } }, options: [{ id: 'A', text: 'Đúng' }, { id: 'B', text: 'Sai' }, { id: 'C', text: 'Sai' }, { id: 'D', text: 'Sai' }], correctOptionId: 'A', tutorSteps: [{ title: 'Bước', explanation: 'Giải thích' }] }] }, { sourceText: 'Bài test' });
-  assert.equal(lesson.questions[0].visual.kind, 'svg');
-  assert.doesNotMatch(lesson.questions[0].visual.spec.svg, /script/i);
+  assert.deepEqual(lesson.questions[0].visual, { kind: 'none' });
 });
 
 test('forces math subjects to use token practice without SVG visuals', () => {
@@ -156,6 +155,185 @@ test('restores five source-specific questions for a linear equation even without
   assert.match(lesson.questions[0].prompt, /2x \+ 5x/);
   assert.match(lesson.questions[3].prompt, /Nghiệm/);
   assert.match(lesson.questions[0].tutorSteps[0].explanation, /2x \+ 5x = 32/);
+});
+
+test('creates five different same-form linear equations', () => {
+  const questions = fallbackLesson({ sourceText: 'giải giúp mình 2x + 7 = 13', language: 'vi' }).questions;
+
+  assert.deepEqual(questions.map(question => question.prompt), [
+    'Giải phương trình tương tự: 3x + 8 = 20.',
+    'Giải phương trình tương tự: 4x + 9 = 29.',
+    'Giải phương trình tương tự: 5x + 10 = 40.',
+    'Giải phương trình tương tự: 6x + 11 = 53.',
+    'Giải phương trình tương tự: 7x + 12 = 68.',
+  ]);
+  assert.deepEqual(questions.map(question => question.options[0].text), ['4', '5', '6', '7', '8']);
+  assert.ok(questions.every(question => question.interactionType === 'math_tokens'));
+});
+
+test('rejects an incomplete AI-generated lesson instead of using fallback questions', () => {
+  assert.throws(
+    () => sanitizeLesson({ questions: [] }, { sourceText: '2x + 7 = 13', language: 'vi' }, true),
+    /incomplete five-question lesson/,
+  );
+});
+
+test('rejects missing AI guidance instead of filling it from fallback content', () => {
+  const question = {
+    title: 'Câu hỏi',
+    prompt: 'Tính 17 - 8 = ?',
+    options: ['9', '8', '10', '14'],
+    correctOptionId: 0,
+    tutorSteps: [{ explanation: 'Tính phép trừ.', analysis: 'Thực hiện phép trừ.' }, { explanation: 'Kiểm tra.', analysis: 'Cộng ngược.' }],
+  };
+  assert.throws(
+    () => sanitizeLesson({ questions: Array.from({ length: 5 }, (_, index) => ({ ...question, prompt: `${question.prompt} (câu ${index + 1})` })) }, { sourceText: '14 - 5 = 9', course: 'mathematics' }, true),
+    /incomplete tutor step/,
+  );
+});
+
+test('accepts Gemini question schema with string options and numeric answer ids', () => {
+  const rawQuestion = {
+    title: 'Giải phương trình dạng ax + b = c',
+    prompt: 'Giải phương trình: 3x + 5 = 14',
+    interactionType: 'fill-in-the-blanks',
+    options: ['3', '9', '4', '2'],
+    correctOptionId: '1',
+    tutorSteps: [1, 2].map((step, index) => ({
+      id: `step_${step}`,
+      title: `Bước ${step}`,
+      explanation: index === 0 ? 'Từ 3x + 5 = 14, suy ra 3x = 9.' : 'Chia hai vế cho 3 để được x = 3.',
+      analysis: 'Áp dụng phép biến đổi tương đương cho phương trình.',
+      easierExample: { prompt: 'Giải phương trình đơn giản hơn: 2x = 4.', answer: '2', hint: 'Chia hai vế cho 2.' },
+      blanks: [`${index ? 'x' : '3x'} = ____`],
+      tokens: [index ? '3' : '9'],
+    })),
+  };
+  const lesson = sanitizeLesson({ questions: [1, 2, 3, 4, 5].map(index => ({ ...rawQuestion, prompt: `${rawQuestion.prompt} (bài ${index})` })) }, { sourceText: '2x + 7 = 13', language: 'vi', subjectArea: 'mathematics', course: 'mathematics' }, true);
+
+  assert.equal(lesson.questions[0].options[0].text, '3');
+  assert.equal(lesson.questions[0].correctOptionId, 'A');
+  assert.equal(lesson.questions[0].tutorSteps[0].tokens[0].label, '9');
+});
+
+test('maps a string blank to the calculated answer token', () => {
+  const rawQuestion = {
+    title: 'Tính phép trừ',
+    prompt: 'Tính 17 - 8 = ?',
+    options: ['9', '8', '10', '14'],
+    correctOptionId: 0,
+    tutorSteps: [{
+      explanation: 'Tính 17 - 8 để tìm kết quả.',
+      analysis: 'Thực hiện phép trừ theo thứ tự.',
+      easierExample: { prompt: 'Tính 10 - 3 = ?', answer: '7', hint: 'Lấy 10 trừ 3.' },
+      blanks: ['17 - 8 = ____'],
+      tokens: ['7', '8', '9', '10'],
+    }, {
+      explanation: 'Kiểm tra kết quả bằng phép cộng ngược.',
+      analysis: '9 cộng 8 bằng 17.',
+      easierExample: { prompt: 'Kiểm tra 10 - 3 = 7 bằng phép cộng.', answer: '7 + 3 = 10', hint: 'Cộng hiệu với số trừ.' },
+      blanks: ['9 + 8 = ____'],
+      tokens: ['9', '+', '8', '=', '17'],
+    }],
+  };
+  const lesson = sanitizeLesson({ questions: Array.from({ length: 5 }, (_, index) => ({ ...rawQuestion, prompt: `${rawQuestion.prompt} (câu ${index + 1})` })) }, { sourceText: '14 - 5 = 9', language: 'vi', course: 'mathematics' }, true);
+
+  assert.equal(lesson.questions[0].tutorSteps[0].blanks[0].expectedTokenId, 't1_3');
+  assert.equal(lesson.questions[0].tutorSteps[0].tokens[2].label, '9');
+});
+
+test('maps a descriptive string blank from Gemini to its answer token', () => {
+  const question = {
+    title: 'Cân bằng phương trình',
+    prompt: 'Cân bằng phương trình H2 + O2 -> H2O.',
+    options: ['2H2 + O2 -> 2H2O', 'H2 + O2 -> H2O', 'H2 + 2O2 -> H2O', '2H2 + 2O2 -> H2O'],
+    correctOptionId: 0,
+    tutorSteps: [1, 2].map(index => ({
+      title: `Bước ${index}`,
+      explanation: 'Vế trái có 2 nguyên tử O và vế phải có 1.',
+      analysis: 'Đếm số nguyên tử O trong O2.',
+      easierExample: {
+        prompt: 'Trong H2 + O2 -> H2O, có bao nhiêu nguyên tử O ở vế trái?',
+        answer: '2',
+        hint: 'Đếm chỉ số của O trong O2.',
+      },
+      blanks: ['Số nguyên tử O vế trái là ____'],
+      tokens: ['1', '2', '3', '4'],
+    })),
+  };
+  const lesson = sanitizeLesson(
+    { questions: Array.from({ length: 5 }, (_, index) => ({ ...question, prompt: `${question.prompt} Câu ${index + 1}.` })) },
+    { sourceText: 'Cân bằng phương trình H2 + O2 -> H2O', language: 'vi', course: 'chemistry' },
+    true,
+  );
+
+  assert.equal(lesson.questions[0].tutorSteps[0].blanks[0].expectedTokenId, 't1_2');
+});
+
+test('rejects prompts copied from the completed lesson', () => {
+  const question = {
+    title: 'Câu hỏi mới',
+    prompt: 'Tính 17 - 8 = ?',
+    options: ['9', '8', '10', '14'],
+    correctOptionId: 0,
+    tutorSteps: [{
+      explanation: 'Tính 17 - 8.',
+      analysis: 'Thực hiện phép trừ.',
+      easierExample: { prompt: 'Tính 10 - 3 = ?', answer: '7', hint: 'Lấy 10 trừ 3.' },
+      blanks: ['17 - 8 = ____'],
+      tokens: ['7', '8', '9', '10'],
+    }, {
+      explanation: 'Kiểm tra kết quả.',
+      analysis: 'Cộng ngược để kiểm tra.',
+      easierExample: { prompt: 'Kiểm tra 10 - 3 = 7.', answer: '7 + 3 = 10', hint: 'Cộng hiệu với số trừ.' },
+      blanks: ['9 + 8 = ____'],
+      tokens: ['9', '+', '8', '=', '17'],
+    }],
+  };
+  assert.throws(
+    () => sanitizeLesson({ questions: Array.from({ length: 5 }, (_, index) => ({ ...question, prompt: index ? `${question.prompt} (bài ${index + 1})` : question.prompt })) }, { sourceText: '14 - 5 = 9', previousQuestions: [question.prompt] }, true),
+    /previous lesson/,
+  );
+});
+
+test('ignores legacy easier-example fields from Gemini', () => {
+  const rawQuestion = {
+    title: 'Giải phương trình',
+    prompt: 'Tìm x trong phương trình 3x + 5 = 14.',
+    options: ['3', '4', '2', '5'],
+    correctOptionId: 0,
+    tutorSteps: [1, 2].map(index => ({
+      title: `Bước ${index}`,
+      explanation: 'Tách số hạng và chia hệ số để tìm x trong phương trình 3x + 5 = 14.',
+      analysis: 'Phương trình được biến đổi từng bước.',
+      easierExample: { prompt: 'Cân bằng phương trình H₂ + O₂ → H₂O.', answer: '2H₂ + O₂ → 2H₂O', hint: 'Đếm số nguyên tử mỗi nguyên tố ở hai vế.' },
+      blanks: ['x = ____'],
+      tokens: ['2'],
+    })),
+  };
+  assert.doesNotThrow(() => sanitizeLesson(
+    { questions: Array.from({ length: 5 }, (_, index) => ({ ...rawQuestion, prompt: `${rawQuestion.prompt} Bài ${index + 1}` })) },
+    { sourceText: '2x + 7 = 13', language: 'vi', subjectArea: 'mathematics', course: 'mathematics' },
+    true,
+  ));
+});
+
+test('validates Vietnamese arithmetic words in easier-question answers', () => {
+  const rawQuestion = {
+    title: 'Tính phép trừ',
+    prompt: 'Tính 17 - 8 = ?',
+    options: ['9', '8', '10', '14'],
+    correctOptionId: 0,
+    tutorSteps: [1, 2].map(index => ({
+      title: `Bước ${index}`,
+      explanation: 'Tính 17 - 8 để tìm kết quả.',
+      analysis: 'Thực hiện phép trừ theo thứ tự.',
+      easierExample: { prompt: 'Tính 9 trừ 3 bằng bao nhiêu?', answer: '6', hint: 'Bớt 3 khỏi 9.' },
+      blanks: ['17 - 8 = ____'],
+      tokens: ['9'],
+    })),
+  };
+  assert.doesNotThrow(() => sanitizeLesson({ questions: Array.from({ length: 5 }, (_, index) => ({ ...rawQuestion, prompt: `${rawQuestion.prompt} câu ${index + 1}` })) }, { sourceText: '14 - 5 = 9', language: 'vi', course: 'mathematics' }, true));
 });
 
 test('restores five circuit questions around U4, R4, and U234', () => {

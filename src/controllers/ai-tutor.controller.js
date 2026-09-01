@@ -6,7 +6,7 @@ const { generateLesson, makeLessonId, generateQuestion, makeQuestionId } = requi
 const RankingService = require('../services/ranking.service');
 const { awardChestnuts } = require('../services/reward.service');
 
-const LESSON_GENERATION_VERSION = 8;
+const LESSON_GENERATION_VERSION = 13;
 const isUsableLesson = lesson => lesson?.generationVersion === LESSON_GENERATION_VERSION
   && Array.isArray(lesson.questions)
   && lesson.questions.length === 5
@@ -16,7 +16,8 @@ const isUsableLesson = lesson => lesson?.generationVersion === LESSON_GENERATION
     && Array.isArray(question.options)
     && question.options.length === 4
     && Array.isArray(question.tutorSteps)
-    && question.tutorSteps.length >= 3);
+    && question.tutorSteps.length === 2
+    && question.tutorSteps.every(step => step.explanation && step.analysis !== undefined && step.hint !== undefined));
 const filterVisibleLessons = (lessons, activeSessions) => {
   const seen = new Set();
   return lessons.filter(lesson => {
@@ -43,7 +44,7 @@ const publicStep = (step, reveal = false) => {
     title: step.title,
     explanation: reveal ? step.explanation : '',
     analysis: reveal ? step.analysis || step.explanation : '',
-    easierExample: reveal ? step.easierExample || null : null,
+    hint: reveal ? step.hint || '' : '',
     blanks: reveal && Array.isArray(step.blanks) ? step.blanks.map(blank => ({ id: blank.id, label: blank.label })) : [],
     tokens: reveal && Array.isArray(step.tokens) ? step.tokens : [],
     interaction: reveal ? publicInteraction(step.interaction) : null,
@@ -55,7 +56,7 @@ const publicQuestion = (question, { revealCorrect = false, unlockedStep = -1 } =
     id: question.id,
     title: question.title,
     prompt: question.prompt,
-    visual: question.visual,
+    visual: { kind: 'none' },
     interactionType: question.interactionType,
     options: Array.isArray(question.options) ? question.options : [],
     tutorSteps: (Array.isArray(question.tutorSteps) ? question.tutorSteps : [])
@@ -91,7 +92,28 @@ const createLesson = async (req, res) => {
     await ensureProblemContext(conversation, language);
     const selected = conversation.problemContext?.questions?.find(question => question.id === String(questionId || conversation.problemContext.activeQuestionId || '').toLowerCase()) || getActiveQuestion(conversation.problemContext);
     if (!selected) return res.status(400).json({ error: 'Không tìm thấy đề bài trong cuộc trò chuyện.' });
-    const existing = await AiTutorLesson.findOne({ user: req.user._id, sessionId, sourceQuestionId: selected.id, completed: false }).sort({ updatedAt: -1 });
+    const sourceText = selected.prompt || conversation.problemContext.sourceText || '';
+    const sourceExpression = selected.sourceExpression || '';
+    const conversationContext = (conversation.history || [])
+      .slice(-12)
+      .map(message => `${message.role}: ${(message.parts || []).map(part => part.text || '').join(' ')}`)
+      .filter(message => message.trim().length > 8)
+      .join('\n')
+      .slice(-6000);
+    const previousLesson = await AiTutorLesson.findOne({
+      user: req.user._id,
+      sessionId,
+      sourceQuestionId: selected.id,
+      sourceText,
+      completed: true,
+    }).sort({ completedAt: -1, updatedAt: -1 }).select('questions.prompt').lean();
+    const existing = await AiTutorLesson.findOne({
+      user: req.user._id,
+      sessionId,
+      sourceQuestionId: selected.id,
+      sourceText,
+      completed: false,
+    }).sort({ updatedAt: -1 });
     // Reuse only lessons from the current generation; older lessons must be regenerated.
     if (isUsableLesson(existing)) {
       let changed = false;
@@ -100,19 +122,23 @@ const createLesson = async (req, res) => {
       if (changed) await existing.save();
       return res.json({ lesson: publicLesson(existing) });
     }
-    if (existing) await existing.deleteOne();
-    const lessonData = await generateLesson({ language, questionId: selected.id, sourceText: selected.prompt || conversation.problemContext.sourceText, sourceExpression: selected.sourceExpression || '', sourceImage: conversation.problemContext.sourceImage, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel });
+    const generationContext = { language, questionId: selected.id, sourceText, sourceExpression, conversationContext, previousQuestions: previousLesson?.questions?.map(question => question.prompt) || [], sourceImage: conversation.problemContext.sourceImage, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel };
+    const lessonData = await generateLesson({ ...generationContext, generationSeed: `${Date.now()}-${makeLessonId()}` });
     const lesson = await AiTutorLesson.create({ ...lessonData, generationVersion: LESSON_GENERATION_VERSION, currentStepIndex: -1, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel, lessonId: makeLessonId(), user: req.user._id, sessionId, sourceQuestionId: selected.id });
     return res.status(201).json({ lesson: publicLesson(lesson) });
   } catch (error) {
     console.error('AI tutor lesson create error:', error.message);
-    return res.status(500).json({ error: 'Không thể tạo bài luyện lúc này.' });
+    return res.status(503).json({
+      error: 'AI Tutor chưa thể tạo đủ 5 câu mới lúc này. Em thử lại sau nhé.',
+      details: error.message || 'Không xác định được nguyên nhân.',
+    });
   }
 };
 
 const getLesson = async (req, res) => {
   const lesson = await AiTutorLesson.findOne({ lessonId: req.params.lessonId, user: req.user._id });
   if (!lesson) return res.status(404).json({ error: 'Không tìm thấy bài luyện.' });
+  if (!isUsableLesson(lesson)) return res.status(410).json({ error: 'Bài luyện cũ không còn hợp lệ. Hãy mở lại AI Tutor để tạo bài mới.' });
   return res.json({ lesson: publicLesson(lesson) });
 };
 
@@ -247,6 +273,17 @@ const completeStep = async (req, res) => {
       && attempt.correct === false);
   if (interactionAnswer?.stepReview === true && !isReviewedFailedStep) {
     return res.status(400).json({ error: 'Bước hướng dẫn chưa có câu trả lời sai để xem lại.' });
+  }
+  if (interactionAnswer?.skip === true && !step.interaction && !step.blanks.length && !step.tokens.length) {
+    if (lesson.currentStepIndex >= question.tutorSteps.length - 1 && lesson.currentQuestionIndex >= lesson.questions.length - 1) {
+      lesson.completed = true; lesson.completedAt = new Date();
+    } else if (lesson.currentStepIndex >= question.tutorSteps.length - 1) {
+      lesson.currentQuestionIndex += 1; lesson.currentStepIndex = -1;
+    } else {
+      lesson.currentStepIndex += 1;
+    }
+    await lesson.save();
+    return res.json({ correct: true, lesson: publicLesson(lesson, { unlockedStep: lesson.currentStepIndex }) });
   }
   const tokenValid = step.interaction ? true : step.blanks.every(blank => placements[blank.id] === blank.expectedTokenId);
   const interactionValid = step.interaction?.type === 'sort_sequence'

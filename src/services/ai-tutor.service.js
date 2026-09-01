@@ -33,15 +33,82 @@ const topicAlgebraData = sourceText => /hằng\s*đẳng\s*thức|hang\s*dang\s*
   ? extractBinomialSquare('(a + 2)^2')
   : null;
 const linearEquationData = sourceText => {
-  const match = String(sourceText || '').match(/([+-]?\s*\d+(?:[.,]\d+)?)\s*x\s*([+-]\s*\d+(?:[.,]\d+)?)\s*x\s*=\s*([+-]?\s*\d+(?:[.,]\d+)?)/i);
-  if (!match) return null;
+  const match = String(sourceText || '').match(/([+-]?\s*\d+(?:[.,]\d+)?)\s*x\s*([+-]\s*\d+(?:[.,]\d+)?)\s*(x)?\s*=\s*([+-]?\s*\d+(?:[.,]\d+)?)/i);
+  if (!match) {
+    const simpleMatch = String(sourceText || '').match(/([+-]?\s*\d+(?:[.,]\d+)?)\s*x\s*=\s*([+-]?\s*\d+(?:[.,]\d+)?)/i);
+    if (!simpleMatch) return null;
+    const coefficient = Number(simpleMatch[1].replace(',', '.').replace(/\s+/g, ''));
+    const right = Number(simpleMatch[2].replace(',', '.').replace(/\s+/g, ''));
+    const solution = right / coefficient;
+    return { kind: 'linear', coefficient, constant: 0, right, reducedRight: right, solution, solutionText: Number.isInteger(solution) ? String(solution) : `${right}/${coefficient}`, expression: `${coefficient}x = ${right}` };
+  }
   const coefficient = value => Number(String(value).replace(',', '.').replace(/\s+/g, ''));
   const first = coefficient(match[1]);
   const second = coefficient(match[2]);
-  const right = coefficient(match[3]);
+  const right = coefficient(match[4]);
+  if (!match[3]) {
+    const solution = (right - second) / first;
+    return {
+      kind: 'linear', coefficient: first, constant: second, right,
+      reducedRight: right - second, solution,
+      solutionText: Number.isInteger(solution) ? String(solution) : `${right - second}/${first}`,
+      expression: `${first}x ${second < 0 ? '−' : '+'} ${Math.abs(second)} = ${right}`,
+    };
+  }
   const total = first + second;
   const solution = right / total;
-  return { first, second, right, total, solution, solutionText: Number.isInteger(solution) ? String(solution) : `${right}/${total}`, expression: `${first}x + ${second}x = ${right}` };
+  return { kind: 'like_terms', first, second, right, total, solution, solutionText: Number.isInteger(solution) ? String(solution) : `${right}/${total}`, expression: `${first}x + ${second}x = ${right}` };
+};
+const similarLinearEquation = (data, index) => {
+  const coefficient = data.coefficient + index + 1;
+  const constant = data.constant + index + 1;
+  const solution = data.solution + index + 1;
+  const right = coefficient * solution + constant;
+  return { ...data, coefficient, constant, right, reducedRight: right - constant, solution, solutionText: Number.isInteger(solution) ? String(solution) : `${right - constant}/${coefficient}`, expression: `${coefficient}x ${constant < 0 ? '−' : '+'} ${Math.abs(constant)} = ${right}` };
+};
+const answerNumber = value => {
+  const normalized = String(value || '').replace(',', '.').replace(/\s/g, '');
+  if (/^-?\d+(?:\.\d+)?\/-?\d+(?:\.\d+)?$/.test(normalized)) {
+    const [numerator, denominator] = normalized.split('/').map(Number);
+    return denominator ? numerator / denominator : null;
+  }
+  const number = normalized.match(/(?:^|=)-?\d+(?:\.\d+)?$/)?.[0];
+  return number ? Number(number.replace(/^=/, '')) : null;
+};
+const arithmeticBlankAnswer = value => {
+  const expression = String(value || '')
+    .split('=')[0]
+    .replace(/[_?]+/g, '')
+    .replace(/−/g, '-')
+    .replace(/(?:bằng bao nhiêu|là bao nhiêu)/gi, '')
+    .replace(/(?:cộng|plus)/gi, '+')
+    .replace(/(?:trừ|minus)/gi, '-')
+    .replace(/(?:nhân|times)/gi, '*')
+    .replace(/(?:chia|divided by)/gi, '/')
+    .replace(/^\s*(?:hãy\s+)?(?:tính|calculate)\s+/i, '')
+    .trim();
+  const match = expression.match(/^(-?\d+(?:[.,]\d+)?)\s*([+\-×*÷/])\s*(-?\d+(?:[.,]\d+)?)$/);
+  if (!match) return null;
+  const left = Number(match[1].replace(',', '.'));
+  const right = Number(match[3].replace(',', '.'));
+  const result = { '+': left + right, '-': left - right, '×': left * right, '*': left * right, '÷': left / right, '/': left / right }[match[2]];
+  return Number.isFinite(result) ? result : null;
+};
+const answerMentionedForBlank = (label, raw, tokens) => {
+  const leftSide = String(label || '').split('=')[0].replace(/\s+/g, '').trim();
+  const context = [raw?.explanation, raw?.analysis, raw?.easierExample?.prompt, raw?.easierExample?.answer]
+    .filter(Boolean).join(' ').replace(/\s+/g, '');
+  const easierAnswer = normalizeForMatch(raw?.easierExample?.answer);
+  const exactAnswer = tokens.find(token => normalizeForMatch(token.label) === easierAnswer);
+  if (exactAnswer) return exactAnswer;
+  const answerNumbers = String(raw?.easierExample?.answer || '').match(/-?\d+(?:[.,]\d+)?/g) || [];
+  const numericAnswer = tokens.find(token => answerNumbers.some(answer => answerNumber(token.label) === answerNumber(answer)));
+  if (numericAnswer) return numericAnswer;
+  if (!leftSide) return null;
+  return tokens.find(token => {
+    const answer = String(token.label || '').replace(/\s+/g, '').trim();
+    return answer && context.includes(`${leftSide}=${answer}`);
+  }) || null;
 };
 const chemistryEquation = sourceText => {
   const source = String(sourceText || '').replace(/\s+/g, '');
@@ -62,6 +129,23 @@ const sourceQuestion = (sourceText, index, language = 'vi') => {
 };
 
 const linearTutorSteps = (data, index, language = 'vi') => {
+  if (data.kind === 'linear') {
+    const vi = language === 'vi';
+    const move = data.constant < 0 ? `cộng ${Math.abs(data.constant)}` : `trừ ${data.constant}`;
+    const steps = [
+      [vi ? `Với ${data.expression}, chuyển số hạng tự do ${data.constant} sang vế phải bằng cách ${move} ở cả hai vế.` : `In ${data.expression}, move the constant ${data.constant} to the right by ${move} on both sides.`, 'Phương trình sau khi chuyển', `${data.coefficient}x = ${data.reducedRight}`],
+      [vi ? `Tính vế phải: ${data.right} ${data.constant < 0 ? '+' : '−'} ${Math.abs(data.constant)} = ${data.reducedRight}, nên ${data.coefficient}x = ${data.reducedRight}.` : `Calculate the right side: ${data.right} ${data.constant < 0 ? '+' : '−'} ${Math.abs(data.constant)} = ${data.reducedRight}, so ${data.coefficient}x = ${data.reducedRight}.`, 'Vế phải sau khi tính', String(data.reducedRight)],
+      [vi ? `Chia hai vế cho ${data.coefficient}: x = ${data.solutionText}.` : `Divide both sides by ${data.coefficient}: x = ${data.solutionText}.`, 'Nghiệm của phương trình', data.solutionText],
+    ];
+    return steps.map(([explanation, label, answer], stepIndex) => mathTokenStep(
+      `s${stepIndex + 1}`,
+      vi ? ['Chuyển số hạng tự do', 'Tính vế phải', 'Tìm x'][stepIndex] : ['Move the constant', 'Calculate the right side', 'Find x'][stepIndex],
+      explanation,
+      label,
+      `answer-${stepIndex + 1}`,
+      [[`answer-${stepIndex + 1}`, answer, stepIndex === 2 ? 'number' : 'variable'], [`wrong-${stepIndex + 1}`, stepIndex === 0 ? `${data.coefficient}x = ${data.right + data.constant}` : stepIndex === 1 ? String(data.right + data.constant) : String(data.solution + 1), 'variable']],
+    ));
+  }
   const vi = language === 'vi';
   const steps = [
     [`Từ phương trình ${data.expression}, gom các hạng tử đồng dạng: ${data.first}x + ${data.second}x = ${data.total}x.`, 'Vế trái sau khi rút gọn', `${data.total}x`],
@@ -78,6 +162,21 @@ const linearTutorSteps = (data, index, language = 'vi') => {
   ));
 };
 const linearQuestion = (data, index, language = 'vi') => {
+  if (data.kind === 'linear') {
+    const question = similarLinearEquation(data, index);
+    const vi = language === 'vi';
+    const options = [question.solutionText, String(question.solution + 1), String(question.solution - 1), String(question.right)];
+    return {
+      id: `q${index + 1}`,
+      title: vi ? `Giải phương trình tương tự · Câu ${index + 1}` : `Solve a similar equation · Question ${index + 1}`,
+      prompt: vi ? `Giải phương trình tương tự: ${question.expression}.` : `Solve this similar equation: ${question.expression}.`,
+      visual: { kind: 'none' },
+      interactionType: 'math_tokens',
+      options: options.map((optionText, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text: optionText })),
+      correctOptionId: 'A',
+      tutorSteps: linearTutorSteps(question, index, language),
+    };
+  }
   const tasks = language === 'vi'
     ? [
       [`Trong ${data.expression}, tổng các hệ số của x là bao nhiêu?`, [String(data.total), String(data.first * data.second), String(data.right), '1']],
@@ -272,12 +371,6 @@ const algebraQuestion = (data, index, language = 'vi') => {
     tutorSteps: algebraTutorSteps(data, index),
   };
 };
-const sanitizeSvg = value => String(value || '')
-  .replace(/<script[\s\S]*?<\/script>/gi, '')
-  .replace(/<(?:foreignObject|iframe|object|embed)[\s\S]*?<\/\s*(?:foreignObject|iframe|object|embed)>/gi, '')
-  .replace(/\son\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-  .replace(/\s(?:href|xlink:href)\s*=\s*["'](?:https?:|data:text\/html|javascript:)[^"']*["']/gi, '')
-  .slice(0, 12000);
 const interactionFor = ({ subjectArea = '', course = '' } = {}) => {
   if (isMathCourse({ subjectArea, course })) return 'math_tokens';
   if (course === 'english_language' || course === 'foreign_language') return 'cloze';
@@ -304,6 +397,17 @@ const isRelatedToSource = (value, sourceText) => {
   if (includesSourceAnchor(value, sourceText)) return true;
   const source = normalizeForMatch(sourceText);
   const content = normalizeForMatch(value);
+  const arithmetic = source.match(/-?\d+(?:[.,]\d+)?\s*([+\-×*÷/])\s*-?\d+(?:[.,]\d+)?\s*=/);
+  if (arithmetic) {
+    const operator = arithmetic[1] === '×' ? '[×*]' : arithmetic[1] === '÷' ? '[÷/]' : `\\${arithmetic[1]}`;
+    if (/\bx\b/i.test(content) || !new RegExp(`-?\\d+(?:[.,]\\d+)?\\s*${operator}\\s*-?\\d+(?:[.,]\\d+)?\\s*=`).test(content)) return false;
+    return true;
+  }
+  if (linearEquationData(source) && /\d+(?:[.,]\d+)?\s*x\s*[+-]\s*\d+(?:[.,]\d+)?\s*=\s*[+-]?\d+/i.test(content)) return true;
+  if (linearEquationData(source) && /\bx\b|phương trình|hệ số|chuyển|chia|equation|coefficient|divide/i.test(content)) return true;
+  if (algebraData(source) && /\([^)]*\)\s*(?:\^\s*2|²)/i.test(content)) return true;
+  if (chemistryEquation(source) && /(?:→|->|=>)/.test(content)) return true;
+  if (isCircuitSource(source) && /\b(?:u|i|r)\d+\b|mạch điện|điện trở/i.test(content)) return true;
   const sourceNumbers = source.match(/\d+(?:[.,/]\d+)?/g) || [];
   const matchingNumbers = sourceNumbers.filter(number => content.includes(number)).length;
   if (matchingNumbers >= Math.min(2, sourceNumbers.length) && matchingNumbers > 0) return true;
@@ -365,10 +469,35 @@ const fallbackLesson = ({ sourceText = '', sourceExpression = '', questionId = '
   return { sourceQuestionId: questionId, sourceText, questions };
 };
 
-const normalizeStep = (raw, index, fallback, sourceText, language) => {
-  const tokens = Array.isArray(raw?.tokens) ? raw.tokens.slice(0, 12).map((token, tokenIndex) => ({ id: id(token?.id) || `t${index + 1}_${tokenIndex + 1}`, label: text(token?.label, '?', 30), type: ['number', 'operator', 'variable', 'text'].includes(token?.type) ? token.type : 'text' })) : fallback.tokens;
+const normalizeStep = (raw, index, fallback, sourceText, language, strict = false, questionPrompt = '') => {
+  if (strict && (!raw || typeof raw !== 'object' || !String(raw.explanation || '').trim() || !String(raw.analysis || '').trim() || !String(raw.hint || raw.easierExample?.hint || '').trim())) {
+    throw new Error(`Gemini returned an incomplete tutor step at index ${index + 1}`);
+  }
+  const hasRawBlanks = Array.isArray(raw?.blanks) && raw.blanks.length > 0;
+  const hasRawTokens = Array.isArray(raw?.tokens) && raw.tokens.length > 0;
+  if (strict && !raw.interaction?.type && hasRawBlanks !== hasRawTokens) {
+    throw new Error(`Gemini returned an incomplete tutor exercise at index ${index + 1}`);
+  }
+  if (strict && !raw.interaction?.type && hasRawTokens && raw.tokens.some(token => !String(typeof token === 'string' ? token : token?.label || '').trim())) {
+    throw new Error(`Gemini returned invalid tutor tokens at index ${index + 1}`);
+  }
+  const tokens = Array.isArray(raw?.tokens) ? raw.tokens.slice(0, 12).map((token, tokenIndex) => ({ id: id(typeof token === 'string' ? `t${index + 1}_${tokenIndex + 1}` : token?.id) || `t${index + 1}_${tokenIndex + 1}`, label: text(typeof token === 'string' ? token : token?.label, strict ? '' : '?', 30), type: ['number', 'operator', 'variable', 'text'].includes(token?.type) ? token.type : 'text' })) : strict ? [] : fallback.tokens;
   const tokenIds = new Set(tokens.map(token => token.id));
-  const blanks = Array.isArray(raw?.blanks) ? raw.blanks.slice(0, 6).map((blank, blankIndex) => ({ id: id(blank?.id) || `b${index + 1}_${blankIndex + 1}`, label: text(blank?.label, 'Ô trống', 50), expectedTokenId: tokenIds.has(id(blank?.expectedTokenId)) ? id(blank.expectedTokenId) : tokens[0]?.id })).filter(blank => blank.expectedTokenId) : fallback.blanks;
+  const defaultTokenId = tokens[0]?.id;
+  if (strict && !raw.interaction?.type && hasRawBlanks && raw.blanks.some(blank => !String(typeof blank === 'string' ? blank : blank?.label || '').trim())) {
+    throw new Error(`Gemini returned invalid tutor blanks at index ${index + 1}`);
+  }
+  const blanks = Array.isArray(raw?.blanks) ? raw.blanks.slice(0, 6).map((blank, blankIndex) => {
+    const label = text(typeof blank === 'string' ? blank : blank?.label, 'Ô trống', 50);
+    const explicitTokenId = id(typeof blank === 'string' ? '' : blank?.expectedTokenId);
+    const arithmeticAnswer = arithmeticBlankAnswer(label);
+    const expectedLabels = arithmeticAnswer === null ? [] : [String(arithmeticAnswer)];
+    const inferredToken = tokens.find(token => expectedLabels.some(answer => answerNumber(token.label) === answerNumber(answer) || normalizeForMatch(token.label) === normalizeForMatch(answer)));
+    const mentionedToken = answerMentionedForBlank(label, raw, tokens);
+    const expectedTokenId = tokenIds.has(explicitTokenId) ? explicitTokenId : inferredToken?.id || mentionedToken?.id || (strict && hasRawBlanks ? undefined : defaultTokenId);
+    if (strict && !expectedTokenId) throw new Error(`Gemini returned an unmapped tutor blank at index ${index + 1}`);
+    return { id: id(typeof blank === 'string' ? `b${index + 1}_${blankIndex + 1}` : blank?.id) || `b${index + 1}_${blankIndex + 1}`, label, expectedTokenId };
+  }).filter(blank => blank.expectedTokenId) : strict ? [] : fallback.blanks;
   const interaction = raw?.interaction?.type === 'sort_sequence' && Array.isArray(raw.interaction.items)
     ? { type: 'sort_sequence', items: raw.interaction.items.slice(0, 6).map((item, itemIndex) => ({ id: id(item?.id) || `i${itemIndex + 1}`, text: text(item?.text, 'Bước', 120), order: Number(item?.order) || itemIndex + 1 })) }
     : ['match_pairs', 'label_diagram', 'cause_effect'].includes(raw?.interaction?.type) && Array.isArray(raw.interaction.pairs)
@@ -378,43 +507,71 @@ const normalizeStep = (raw, index, fallback, sourceText, language) => {
         : raw?.interaction?.type === 'cloze'
           ? { type: 'cloze', prompt: text(raw.interaction.prompt, 'Điền từ còn thiếu.', 300), answer: text(raw.interaction.answer, '', 80).toLowerCase() }
         : null;
-  const needsFallbackExercise = !interaction && (!blanks.length || !tokens.length);
-  const rawExplanation = text(raw?.explanation, fallback.explanation, 500);
-  if (!isRelatedToSource(rawExplanation, sourceText)) return fallback;
-  const easierExample = raw?.easierExample && typeof raw.easierExample === 'object'
-    ? {
-      prompt: text(raw.easierExample.prompt, fallback.easierExample?.prompt || 'Ví dụ dễ hơn.', 500),
-      answer: text(raw.easierExample.answer, fallback.easierExample?.answer || '', 120),
-      hint: text(raw.easierExample.hint, '', 300),
-    }
-    : fallback.easierExample;
-  return { id: id(raw?.id) || `s${index + 1}`, title: text(raw?.title, fallback.title, 90), explanation: rawExplanation, analysis: text(raw?.analysis, fallback.analysis || rawExplanation, 500), easierExample, blanks: needsFallbackExercise ? fallback.blanks : blanks, tokens: needsFallbackExercise ? fallback.tokens : tokens, interaction };
+  if (strict && raw?.interaction?.type) {
+    const source = raw.interaction;
+    const valid = source.type === 'sort_sequence'
+      ? Array.isArray(source.items) && source.items.length > 0 && source.items.every(item => String(item?.text || '').trim())
+      : ['match_pairs', 'label_diagram', 'cause_effect'].includes(source.type)
+        ? Array.isArray(source.pairs) && source.pairs.length > 0 && source.pairs.every(pair => String(pair?.left || '').trim() && String(pair?.right || '').trim())
+        : source.type === 'evidence_choice'
+          ? String(source.prompt || '').trim() && Array.isArray(source.choices) && source.choices.length > 0 && source.choices.some(choice => choice?.correct === true)
+          : source.type === 'cloze'
+            ? String(source.prompt || '').trim() && String(source.answer || '').trim()
+            : false;
+    if (!valid) throw new Error(`Gemini returned an incomplete interaction at index ${index + 1}`);
+  }
+  const hasExercise = Boolean(interaction || (blanks.length && tokens.length));
+  const rawExplanation = text(raw?.explanation, strict ? '' : fallback.explanation, 500);
+  if (!isRelatedToSource(rawExplanation, `${sourceText}\n${questionPrompt}`) && !strict) return fallback;
+  const hint = text(raw?.hint || raw?.easierExample?.hint, strict ? '' : fallback.hint || fallback.easierExample?.hint || '', 300);
+  if (strict && /[?？]/.test(hint)) {
+    throw new Error(`Gemini returned a question inside hint at index ${index + 1}; hint must only guide`);
+  }
+  return { id: id(raw?.id) || `s${index + 1}`, title: text(raw?.title, strict ? '' : fallback.title, 90), explanation: rawExplanation, analysis: text(raw?.analysis, strict ? '' : fallback.analysis || rawExplanation, 500), hint, ...(strict ? {} : { easierExample: fallback.easierExample || { prompt: '', answer: '', hint } }), blanks: hasExercise ? blanks : [], tokens: hasExercise ? tokens : [], interaction };
 };
 
-const normalizeQuestion = (raw, index, sourceText, language, context = {}) => {
-  const fallback = fallbackLesson({ sourceText, sourceExpression: context.sourceExpression, language, subjectArea: context.subjectArea, course: context.course }).questions[index];
-  const deterministic = sourceQuestion(context.sourceExpression || sourceText, index, language);
+const normalizeQuestion = (raw, index, sourceText, language, context = {}, strict = false) => {
+  const fallback = strict ? null : fallbackLesson({ sourceText, sourceExpression: context.sourceExpression, language, subjectArea: context.subjectArea, course: context.course }).questions[index];
+  if (strict && (!raw || typeof raw !== 'object' || !String(raw.title || '').trim() || !String(raw.prompt || '').trim() || !Array.isArray(raw.options) || raw.options.length !== 4 || !Array.isArray(raw.tutorSteps) || raw.tutorSteps.length !== 2)) {
+    throw new Error(`Gemini returned an incomplete question at index ${index + 1}`);
+  }
+  if (strict && raw.options.some(option => !String(typeof option === 'string' ? option : option?.text || '').trim())) {
+    throw new Error(`Gemini returned invalid options at index ${index + 1}`);
+  }
+  if (strict && !['A', 'B', 'C', 'D', '0', '1', '2', '3'].includes(String(raw.correctOptionId ?? ''))) {
+    throw new Error(`Gemini returned an invalid answer at index ${index + 1}`);
+  }
+  if (strict && isMathCourse(context) && raw.tutorSteps.some(step => {
+    const hasBlanks = Array.isArray(step?.blanks) && step.blanks.length > 0;
+    const hasTokens = Array.isArray(step?.tokens) && step.tokens.length > 0;
+    return hasBlanks !== hasTokens;
+  })) throw new Error(`Gemini returned an incomplete math exercise at index ${index + 1}`);
+  const rawPrompt = text(raw?.prompt, strict ? '' : sourceText || fallback.prompt, 900);
+  if (strict && !isRelatedToSource(rawPrompt, sourceText)) {
+    throw new Error(`Gemini returned an unrelated question at index ${index + 1}`);
+  }
+  const deterministic = !strict && sourceQuestion(context.sourceExpression || sourceText, index, language);
   if (deterministic) return { ...deterministic, id: id(raw?.id) || deterministic.id };
-  const options = Array.isArray(raw?.options) ? raw.options.slice(0, 4).map((option, optionIndex) => ({ id: String(option?.id || String.fromCharCode(65 + optionIndex)).slice(0, 2), text: text(option?.text, fallback.options[optionIndex]?.text || 'Lựa chọn', 180) })) : fallback.options;
+  const options = Array.isArray(raw?.options) ? raw.options.slice(0, 4).map((option, optionIndex) => ({ id: String.fromCharCode(65 + optionIndex), text: text(typeof option === 'string' ? option : option?.text, strict ? '' : fallback.options[optionIndex]?.text || 'Lựa chọn', 180) })) : strict ? [] : fallback.options;
   const validIds = new Set(options.map(option => option.id));
-  const rawPrompt = text(raw?.prompt, sourceText || fallback.prompt, 900);
+  const correctOptionId = ['0', '1', '2', '3'].includes(String(raw?.correctOptionId ?? ''))
+    ? String.fromCharCode(65 + Number(raw.correctOptionId))
+    : String(raw?.correctOptionId || '');
   if (!isRelatedToSource(rawPrompt, sourceText)) {
+    if (strict) throw new Error(`Gemini returned an unrelated question at index ${index + 1}`);
     return { id: id(raw?.id) || `q${index + 1}`, ...fallback };
   }
   const prompt = rawPrompt;
   // Never infer the source problem from Gemini's prompt; that would let an
   // unrelated expression in the generated text replace the student's problem.
-  const algebra = algebraData(context.sourceExpression || sourceText) || topicAlgebraData(sourceText);
-  if (algebra) return { id: id(raw?.id) || `q${index + 1}`, ...algebraQuestion(algebra, index, language) };
-  const steps = Array.isArray(raw?.tutorSteps) ? raw.tutorSteps.slice(0, 4).map((step, stepIndex) => normalizeStep(step, stepIndex, fallback.tutorSteps[stepIndex] || fallback.tutorSteps[0], sourceText, language)).filter(Boolean) : fallback.tutorSteps;
-  while (steps.length < 3) steps.push(fallback.tutorSteps[steps.length]);
+  const steps = Array.isArray(raw?.tutorSteps) ? raw.tutorSteps.slice(0, 4).map((step, stepIndex) => normalizeStep(step, stepIndex, strict ? null : fallback.tutorSteps[stepIndex] || fallback.tutorSteps[0], sourceText, language, strict, rawPrompt)).filter(Boolean) : strict ? [] : fallback.tutorSteps;
+  if (!strict) while (steps.length < 3) steps.push(fallback.tutorSteps[steps.length]);
   const mathSubject = isMathCourse(context);
   steps.forEach(step => {
     if (mathSubject) {
       step.interaction = null;
-      if (!step.blanks.length || !step.tokens.length) {
-        step.blanks = fallback.tutorSteps[0].blanks;
-        step.tokens = fallback.tutorSteps[0].tokens;
+      if (step.blanks.length || step.tokens.length) {
+        if (!step.blanks.length || !step.tokens.length) throw new Error(`Gemini returned an incomplete math exercise at index ${index + 1}`);
       }
     }
     if (!mathSubject && !step.interaction && raw?.interactionType === 'cloze') step.interaction = { type: 'cloze', prompt: step.explanation || 'Điền từ còn thiếu.', answer: '' };
@@ -422,33 +579,76 @@ const normalizeQuestion = (raw, index, sourceText, language, context = {}) => {
     if (!mathSubject && !step.interaction && ['match_pairs', 'label_diagram', 'cause_effect'].includes(raw?.interactionType)) step.interaction = { type: raw.interactionType, pairs: [{ id: 'p1', left: 'Nội dung chính', right: 'Ghép đúng' }] };
     if (!mathSubject && !step.interaction && raw?.interactionType === 'evidence_choice') step.interaction = { type: 'evidence_choice', prompt: step.explanation || 'Chọn bằng chứng phù hợp.', choices: [{ id: 'c1', text: 'Bằng chứng trực tiếp từ đề bài.', correct: true }, { id: 'c2', text: 'Thông tin không xuất hiện trong đề.', correct: false }] };
     if (step.interaction?.type === 'cloze' && !step.interaction.answer) {
-      step.interaction.answer = String(options.find(option => option.id === (validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A'))?.text || '').trim().toLowerCase();
+      step.interaction.answer = String(options.find(option => option.id === (validIds.has(correctOptionId) ? correctOptionId : 'A'))?.text || '').trim().toLowerCase();
     }
   });
   const interactionTypes = ['math_tokens', 'label_diagram', 'sort_sequence', 'match_pairs', 'cloze', 'evidence_choice', 'cause_effect', 'generic_tokens'];
   const resolvedInteractionType = mathSubject ? 'math_tokens' : interactionTypes.includes(raw?.interactionType) && raw.interactionType !== 'generic_tokens' ? raw.interactionType : interactionFor(context);
-  const visualSpec = raw?.visual?.kind === 'svg' && raw.visual.spec && typeof raw.visual.spec === 'object'
-    ? { ...raw.visual.spec, svg: sanitizeSvg(raw.visual.spec.svg) }
-    : null;
   const interactionType = resolvedInteractionType;
-  const visual = mathSubject || interactionType === 'math_tokens' ? { kind: 'none' } : visualSpec?.svg ? { kind: 'svg', spec: visualSpec } : { kind: 'none' };
-  return { id: id(raw?.id) || `q${index + 1}`, title: text(raw?.title, fallback.title, 120), prompt, visual, interactionType, options: options.length === 4 ? options : fallback.options, correctOptionId: validIds.has(String(raw?.correctOptionId)) ? String(raw.correctOptionId) : 'A', tutorSteps: steps.length ? steps : fallback.tutorSteps };
+  let resolvedCorrectOptionId = validIds.has(correctOptionId) ? correctOptionId : 'A';
+  const equation = linearEquationData(rawPrompt);
+  if (strict && equation?.kind === 'linear') {
+    const answerIndex = options.findIndex(option => answerNumber(option.text) === equation.solution);
+    if (answerIndex < 0) throw new Error(`Gemini returned no correct answer at index ${index + 1}`);
+    resolvedCorrectOptionId = String.fromCharCode(65 + answerIndex);
+  }
+  return { id: id(raw?.id) || `q${index + 1}`, title: text(raw?.title, strict ? '' : fallback.title, 120), prompt, visual: { kind: 'none' }, interactionType, options: options.length === 4 ? options : strict ? [] : fallback.options, correctOptionId: resolvedCorrectOptionId, tutorSteps: steps.length ? steps : strict ? [] : fallback.tutorSteps };
 };
 
-const sanitizeLesson = (raw, context = {}) => {
-  const fallback = fallbackLesson(context);
-  const questions = Array.isArray(raw?.questions) ? raw.questions.slice(0, 5).map((question, index) => normalizeQuestion(question, index, context.sourceText, context.language, context)).filter(question => question.options.length === 4) : [];
+const sanitizeLesson = (raw, context = {}, strict = false) => {
+  const fallback = strict ? null : fallbackLesson(context);
+  if (strict && (!Array.isArray(raw?.questions) || raw.questions.length !== 5)) throw new Error('Gemini returned an incomplete five-question lesson');
+  const questions = Array.isArray(raw?.questions) ? raw.questions.slice(0, 5).map((question, index) => normalizeQuestion(question, index, context.sourceText, context.language, context, strict)).filter(question => question.options.length === 4) : [];
+  if (strict && questions.length !== 5) throw new Error('Gemini returned unusable lesson questions');
+  if (strict && new Set(questions.map(question => normalizeForMatch(question.prompt))).size !== 5) throw new Error('Gemini returned duplicate lesson questions');
+  const previousQuestions = new Set((context.previousQuestions || []).map(normalizeForMatch));
+  if (strict && previousQuestions.size && questions.some(question => previousQuestions.has(normalizeForMatch(question.prompt)))) {
+    throw new Error('Gemini returned a question from the previous lesson');
+  }
+  const originalEquation = linearEquationData(context.sourceExpression || context.sourceText);
+  if (strict && originalEquation?.kind === 'linear' && questions.some(question => {
+    const generatedEquation = linearEquationData(question.prompt);
+    return !generatedEquation || generatedEquation.expression === originalEquation.expression;
+  })) throw new Error('Gemini returned the original equation instead of a similar one');
   // Gemini occasionally returns fewer items; pad so every lesson always has five steps/questions.
-  while (questions.length < 5) questions.push(fallback.questions[questions.length]);
-  return { sourceQuestionId: context.questionId || fallback.sourceQuestionId, sourceText: context.sourceText || '', sourceImage: context.sourceImage || null, questions };
+  if (!strict) while (questions.length < 5) questions.push(fallback.questions[questions.length]);
+  return { sourceQuestionId: context.questionId || 'main', sourceText: context.sourceText || '', sourceImage: context.sourceImage || null, questions };
 };
 
 const generateLesson = async (context = {}) => {
-  const fallback = fallbackLesson(context);
-  try {
-    const prompt = `Tạo mini-lesson LIÊN TỤC ĐÚNG 5 CÂU dựa CHỈ trên bài học sau. Không đổi dữ kiện. Ngôn ngữ: ${context.language || 'vi'}. Cấp học: ${context.educationLevel || 'middle'}. Nhóm môn: ${context.subjectArea || 'natural_sciences'}. Môn: ${context.course || ''}. Bài học gốc: ${context.sourceText || '(xem ảnh đính kèm)'}. Biểu thức gốc nếu có: ${context.sourceExpression || '(không có)'}. Mỗi câu phải là một ví dụ/bài tập mới cùng dạng với câu hỏi chính, có thể giải bằng đúng công thức hoặc phương pháp của đề gốc; không đổi chủ đề, biến, số liệu hoặc yêu cầu đã có. Nếu nguồn chỉ nêu chủ đề mà chưa có số liệu cụ thể, hãy tạo một ví dụ minh họa cùng chủ đề với số nhỏ, nói rõ đó là ví dụ áp dụng. Mỗi tutorStep phải có explanation, analysis (phân tích ngắn câu hiện tại), và easierExample gồm prompt, answer, hint; easierExample phải là một ví dụ cùng dạng nhưng đơn giản hơn nhiều để học sinh bắt chước trước. Mỗi tutorStep cũng phải nhắc chi tiết cụ thể của câu đang hỏi; tuyệt đối không dùng bước chung chung như "xác định dữ kiện quan trọng", "đọc đề" nếu không kèm dữ kiện cụ thể. Nếu là Toán/Lý/Hóa (math_tokens), KHÔNG tạo hình ảnh/SVG; tập trung vào biểu thức, phép tính và suy luận. Chỉ tạo SVG đơn giản cho môn cần sơ đồ, không script/HTML/external URL. Trả JSON duy nhất theo schema questions gồm id,title,prompt,visual,interactionType,options,correctOptionId,tutorSteps. Không trả câu hỏi chung chung, không thương hiệu.`;
-    const chat = startChat([], 'Bạn là AI Tutor. Chỉ trả JSON hợp lệ, trung thành với đề bài.');
-    const parts = [{ text: prompt }];
+  let repairAttempts = Number(context.repairAttempts || 0);
+  let repairError = context.repairError;
+  while (true) {
+    try {
+    const previousQuestions = (context.previousQuestions || []).filter(Boolean).join('\n- ');
+    /* Legacy prompt kept out of the request; the contract below is authoritative. */
+    /*
+    const previousQuestions = (context.previousQuestions || []).filter(Boolean).join('\n- ');
+    const prompt = `Tạo một bộ 5 câu hỏi luyện tập HOÀN TOÀN MỚI cho lần mở AI Tutor này, cùng dạng và cùng kỹ năng với bài gốc. Mã sinh mới của lần này là ${context.generationSeed || `${Date.now()}-${Math.random()}`}; không được dùng mã này trong nội dung câu hỏi. Được đổi số liệu nhưng không đổi dạng, phép toán, biến hoặc phương pháp; mỗi câu phải khác câu gốc và khác 4 câu còn lại. Nếu bài gốc là phép tính số học không có biến, tuyệt đối không thêm biến x hoặc đổi sang phương trình; chỉ tạo phép tính cùng phép toán. Với phương trình, tạo 5 phương trình dạng ax+b=c khác nhau, không lặp bài gốc và không lặp bộ câu hỏi trước. Dùng ngữ cảnh cuộc trò chuyện bên dưới để hiểu đúng yêu cầu hiện tại, nhưng chỉ tạo bài tập xoay quanh đề bài hiện tại; không sao chép câu trả lời cũ hoặc tạo lại lesson cũ.
+
+ĐÂY LÀ HỢP ĐỒNG BẮT BUỘC: không được bỏ trường nào. Mỗi câu có title rõ ràng, prompt là một câu hỏi hoàn chỉnh có đủ dữ kiện và yêu cầu cụ thể (không viết câu chung chung như “hãy áp dụng”, “hãy suy nghĩ” hoặc “dựa vào bước trên”), interactionType, options là đúng 4 chuỗi, correctOptionId là một số 0-3, tutorSteps là đúng 2 object. Mỗi tutorStep bắt buộc có title, explanation, analysis, easierExample là object {prompt,answer,hint}; prompt của easierExample phải là một câu hỏi độc lập, nêu đủ số liệu/biểu thức và yêu cầu cụ thể, answer phải trả lời đúng prompt, hint phải hướng dẫn trực tiếp. Với dạng điền ô, tutorStep bắt buộc có blanks là mảng chuỗi và tokens là mảng chuỗi: blanks chỉ là các ô cần điền (dùng chuỗi có ____), tokens chỉ là các lựa chọn để điền (không tách phương trình thành từng ký hiệu). Ví dụ hợp lệ: blanks:["14 - 5 = ____"], tokens:["14","5","9"]. Token đúng phải xuất hiện trong tokens và blanks phải tương ứng với token đúng. Không tạo visual/SVG/hình ảnh.
+
+Chỉ trả JSON hợp lệ theo đúng schema này, không markdown: {"questions":[{"title":"...","prompt":"...","interactionType":"math_tokens","options":["...","...","...","..."],"correctOptionId":0,"tutorSteps":[{"title":"...","explanation":"...","analysis":"...","easierExample":{"prompt":"Tính 10 - 3 = ?","answer":"7","hint":"Lấy 10 trừ 3."},"blanks":["10 - 3 = ____"],"tokens":["10","3","7"]},{"title":"...","explanation":"...","analysis":"...","easierExample":{"prompt":"Kiểm tra 10 - 3 = 7 bằng phép cộng.","answer":"7 + 3 = 10","hint":"Cộng hiệu với số trừ."},"blanks":["7 + 3 = ____"],"tokens":["7","3","10"]}]}]}. Ngôn ngữ: ${context.language || 'vi'}. Cấp học: ${context.educationLevel || 'middle'}. Môn: ${context.course || context.subjectArea || ''}. Bài gốc: ${context.sourceText || '(xem ảnh đính kèm)'}. Biểu thức gốc: ${context.sourceExpression || '(không có)'}. Ngữ cảnh cuộc trò chuyện hiện tại:\n${context.conversationContext || '(không có)'}. Các prompt của lesson cũ, TUYỆT ĐỐI KHÔNG ĐƯỢC LẶP LẠI:\n- ${previousQuestions || '(không có)'}`;
+    */
+    const contractPrompt = [
+      `Tạo JSON lesson gồm đúng 5 câu hỏi mới theo bài gốc. Mã sinh lần này là ${context.generationSeed || `${Date.now()}-${Math.random()}`}; không đưa mã này vào nội dung. Đây là lần sửa ${repairAttempts + 1}.`,
+      'Mỗi câu có title, prompt đầy đủ dữ kiện, interactionType, đúng 4 options, correctOptionId là số 0-3 và đúng 2 tutorSteps.',
+      'Giữ nguyên dạng bài, phép toán, biến và phương pháp. Nếu bài gốc là phép tính số học không có biến thì tuyệt đối không thêm biến x hoặc đổi sang phương trình. Nếu là phương trình thì tạo phương trình cùng dạng, khác số liệu và không lặp bài gốc.',
+      'Mỗi tutorStep có title, explanation, analysis, hint, blanks và tokens.',
+      'Hint chỉ là hướng dẫn ngắn, không chứa câu hỏi, dấu ? hoặc ____.',
+      'Nếu chỉ hướng dẫn thì blanks và tokens phải là []; chỉ tạo bài điền khi học sinh thật sự cần điền.',
+      'Khi có bài điền, blanks là object {id,label,expectedTokenId}; label nói rõ cần điền gì; expectedTokenId trỏ chính xác đến một token trong tokens; tokens là object {id,label,type}.',
+      'Không tạo easierExample, câu hỏi phụ, visual, SVG hoặc hình ảnh.',
+      'Câu hỏi phải cùng dạng bài, bám sát đề gốc, khác nhau và không lặp các câu cũ.',
+      'Chỉ trả JSON hợp lệ, không markdown.',
+      `Ngôn ngữ: ${context.language || 'vi'}. Cấp học: ${context.educationLevel || 'middle'}. Môn: ${context.course || context.subjectArea || ''}.`,
+      `Bài gốc: ${context.sourceText || '(xem ảnh đính kèm)'}. Biểu thức gốc: ${context.sourceExpression || '(không có)'}.`,
+      `Ngữ cảnh: ${context.conversationContext || '(không có)'}. Câu cũ không được lặp: ${previousQuestions || '(không có)'}.`,
+      repairError ? `LỖI Ở LẦN TRƯỚC: ${repairError}. Hãy tạo lại toàn bộ JSON và sửa đúng lỗi này.` : '',
+    ].filter(Boolean).join('\n');
+    const chat = startChat([], 'Bạn là AI Tutor. Chỉ trả JSON hợp lệ. Không tạo easierExample hoặc câu hỏi phụ. Hint chỉ là hướng dẫn, không phải câu hỏi.');
+    const requestPrompt = contractPrompt;
+    const parts = [{ text: requestPrompt }];
     if (context.sourceImage?.url) {
       const imageResponse = await fetch(context.sourceImage.url);
       if (imageResponse.ok) parts.push({ inlineData: { mimeType: imageResponse.headers.get('content-type') || 'image/jpeg', data: Buffer.from(await imageResponse.arrayBuffer()).toString('base64') } });
@@ -457,10 +657,13 @@ const generateLesson = async (context = {}) => {
     if (!Array.isArray(raw?.questions) || raw.questions.length !== 5 || raw.questions.some(question => !Array.isArray(question?.options) || question.options.length !== 4)) {
       throw new Error('Gemini returned an incomplete five-question lesson');
     }
-    return sanitizeLesson(raw, context);
+    return sanitizeLesson(raw, context, true);
   } catch (error) {
     console.error('AI tutor lesson generation failed:', error.message);
-    return fallback;
+    if (error?.status || error?.response?.status || /No Google API keys configured|No response from Gemini API|Invalid response format from Gemini API/i.test(error.message)) throw error;
+    repairAttempts += 1;
+    repairError = error.message;
+    }
   }
 };
 

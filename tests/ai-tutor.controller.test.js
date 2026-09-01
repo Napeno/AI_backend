@@ -4,12 +4,15 @@ const { filterVisibleLessons } = require('../src/controllers/ai-tutor.controller
 
 const usableLesson = (overrides = {}) => ({
   sessionId: 'session-1',
-  generationVersion: 8,
+  generationVersion: 13,
   questions: Array.from({ length: 5 }, (_, index) => ({
     id: `q${index + 1}`,
     prompt: 'Câu hỏi',
     options: [{}, {}, {}, {}],
-    tutorSteps: [{ id: 's1' }, { id: 's2' }, { id: 's3' }],
+    tutorSteps: [
+      { id: 's1', explanation: 'Tính.', analysis: 'Thực hiện phép tính.', hint: 'Tính theo đúng thứ tự.' },
+      { id: 's2', explanation: 'Kiểm tra.', analysis: 'Đối chiếu kết quả.', hint: 'Đối chiếu với đề bài.' },
+    ],
   })),
   ...overrides,
 });

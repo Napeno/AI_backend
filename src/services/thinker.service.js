@@ -1,4 +1,5 @@
 const User = require('../models/user.model');
+const Conversation = require('../models/conversation.model');
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
 
 const BADGES = [
@@ -27,8 +28,30 @@ const awardBadge = (user, code) => {
   return true;
 };
 
+const getSelfTrialStreak = (conversations) => {
+  const activities = conversations.flatMap(conversation => {
+    const groups = new Map();
+    (conversation.dependencyEvents || []).filter(event => event.rulesetVersion === 'v2').forEach(event => {
+      const key = event.details?.problemKey || conversation.sessionId;
+      groups.set(key, [...(groups.get(key) || []), event]);
+    });
+    return [...groups.values()].map(events => {
+      const ordered = events.sort((a, b) => new Date(a.at) - new Date(b.at));
+      const firstAttempt = ordered.find(event => event.type === 'answer_checked' && event.details?.isMeaningfulAttempt);
+      const firstHint = ordered.find(event => event.type === 'hint_requested');
+      return { at: firstAttempt?.at || firstHint?.at, triedFirst: Boolean(firstAttempt && (!firstHint || new Date(firstAttempt.at) < new Date(firstHint.at))) };
+    });
+  }).filter(activity => activity.at).sort((a, b) => new Date(a.at) - new Date(b.at));
+
+  return activities.reduce((streak, activity) => activity.triedFirst ? streak + 1 : 0, 0);
+};
+
 const awardSelfTrialBadge = async (userId, conversation) => {
-  if ((conversation.interventionMetrics?.bestSelfAttemptStreak || 0) < 3) return null;
+  const previousConversations = await Conversation.find({ user: userId, ...(conversation?.sessionId ? { sessionId: { $ne: conversation.sessionId } } : {}) }).select('sessionId dependencyEvents').lean();
+  const streak = conversation
+    ? Math.max(conversation.interventionMetrics?.bestSelfAttemptStreak || 0, getSelfTrialStreak([...previousConversations, conversation]))
+    : getSelfTrialStreak(previousConversations);
+  if (streak < 3) return null;
   const user = await User.findById(userId);
   if (!user || !awardBadge(user, 'self_trial_3')) return null;
   await user.save();
@@ -116,6 +139,7 @@ module.exports = {
   getBadgeDefinitions,
   awardSelfTrialBadge,
   awardAiErrorBadge,
+  getSelfTrialStreak,
   isConcreteCorrection,
   validateAiCorrection,
   buildWeeklyJournal,

@@ -40,6 +40,7 @@ router.get('/rewards', async (req, res) => {
 });
 
 router.get('/badges', async (req, res) => {
+  await ThinkerService.awardSelfTrialBadge(req.user._id);
   const user = await User.findById(req.user._id).select('badges').lean();
   const earned = new Map((user?.badges || []).map(badge => [badge.code, badge.earnedAt]));
   return res.json({ badges: ThinkerService.getBadgeDefinitions().map(badge => ({ ...badge, earnedAt: earned.get(badge.code) || null })) });
