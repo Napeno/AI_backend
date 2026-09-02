@@ -473,6 +473,12 @@ const normalizeStep = (raw, index, fallback, sourceText, language, strict = fals
   if (strict && (!raw || typeof raw !== 'object' || !String(raw.explanation || '').trim() || !String(raw.analysis || '').trim() || !String(raw.hint || raw.easierExample?.hint || '').trim())) {
     throw new Error(`Gemini returned an incomplete tutor step at index ${index + 1}`);
   }
+  if (strict && (!raw.easierExample || typeof raw.easierExample !== 'object'
+    || !String(raw.easierExample.prompt || '').trim()
+    || !String(raw.easierExample.answer || '').trim()
+    || !String(raw.easierExample.hint || '').trim())) {
+    throw new Error(`Gemini returned an incomplete easier example at index ${index + 1}`);
+  }
   const hasRawBlanks = Array.isArray(raw?.blanks) && raw.blanks.length > 0;
   const hasRawTokens = Array.isArray(raw?.tokens) && raw.tokens.length > 0;
   if (strict && !raw.interaction?.type && hasRawBlanks !== hasRawTokens) {
@@ -527,7 +533,7 @@ const normalizeStep = (raw, index, fallback, sourceText, language, strict = fals
   if (strict && /[?？]/.test(hint)) {
     throw new Error(`Gemini returned a question inside hint at index ${index + 1}; hint must only guide`);
   }
-  return { id: id(raw?.id) || `s${index + 1}`, title: text(raw?.title, strict ? '' : fallback.title, 90), explanation: rawExplanation, analysis: text(raw?.analysis, strict ? '' : fallback.analysis || rawExplanation, 500), hint, ...(strict ? {} : { easierExample: fallback.easierExample || { prompt: '', answer: '', hint } }), blanks: hasExercise ? blanks : [], tokens: hasExercise ? tokens : [], interaction };
+  return { id: id(raw?.id) || `s${index + 1}`, title: text(raw?.title, strict ? '' : fallback.title, 90), explanation: rawExplanation, analysis: text(raw?.analysis, strict ? '' : fallback.analysis || rawExplanation, 500), hint, easierExample: strict ? { prompt: text(raw.easierExample.prompt, '', 500), answer: text(raw.easierExample.answer, '', 300), hint: text(raw.easierExample.hint, '', 300) } : (fallback.easierExample || { prompt: '', answer: '', hint }), blanks: hasExercise ? blanks : [], tokens: hasExercise ? tokens : [], interaction };
 };
 
 const normalizeQuestion = (raw, index, sourceText, language, context = {}, strict = false) => {
@@ -615,10 +621,10 @@ const sanitizeLesson = (raw, context = {}, strict = false) => {
   return { sourceQuestionId: context.questionId || 'main', sourceText: context.sourceText || '', sourceImage: context.sourceImage || null, questions };
 };
 
-const generateLesson = async (context = {}) => {
+const generateLessonLegacy = async (context = {}) => {
   let repairAttempts = Number(context.repairAttempts || 0);
   let repairError = context.repairError;
-  while (true) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
     const previousQuestions = (context.previousQuestions || []).filter(Boolean).join('\n- ');
     /* Legacy prompt kept out of the request; the contract below is authoritative. */
@@ -634,11 +640,11 @@ Chỉ trả JSON hợp lệ theo đúng schema này, không markdown: {"question
       `Tạo JSON lesson gồm đúng 5 câu hỏi mới theo bài gốc. Mã sinh lần này là ${context.generationSeed || `${Date.now()}-${Math.random()}`}; không đưa mã này vào nội dung. Đây là lần sửa ${repairAttempts + 1}.`,
       'Mỗi câu có title, prompt đầy đủ dữ kiện, interactionType, đúng 4 options, correctOptionId là số 0-3 và đúng 2 tutorSteps.',
       'Giữ nguyên dạng bài, phép toán, biến và phương pháp. Nếu bài gốc là phép tính số học không có biến thì tuyệt đối không thêm biến x hoặc đổi sang phương trình. Nếu là phương trình thì tạo phương trình cùng dạng, khác số liệu và không lặp bài gốc.',
-      'Mỗi tutorStep có title, explanation, analysis, hint, blanks và tokens.',
+      'Mỗi tutorStep có title, explanation, analysis, easierExample {prompt,answer,hint}, hint, blanks và tokens.',
       'Hint chỉ là hướng dẫn ngắn, không chứa câu hỏi, dấu ? hoặc ____.',
       'Nếu chỉ hướng dẫn thì blanks và tokens phải là []; chỉ tạo bài điền khi học sinh thật sự cần điền.',
       'Khi có bài điền, blanks là object {id,label,expectedTokenId}; label nói rõ cần điền gì; expectedTokenId trỏ chính xác đến một token trong tokens; tokens là object {id,label,type}.',
-      'Không tạo easierExample, câu hỏi phụ, visual, SVG hoặc hình ảnh.',
+      'easierExample bắt buộc là một câu hỏi dễ hơn, độc lập, có đủ dữ kiện; answer phải đúng và hint chỉ hướng dẫn. Không tạo câu hỏi phụ, visual, SVG hoặc hình ảnh.',
       'Câu hỏi phải cùng dạng bài, bám sát đề gốc, khác nhau và không lặp các câu cũ.',
       'Chỉ trả JSON hợp lệ, không markdown.',
       `Ngôn ngữ: ${context.language || 'vi'}. Cấp học: ${context.educationLevel || 'middle'}. Môn: ${context.course || context.subjectArea || ''}.`,
@@ -646,7 +652,7 @@ Chỉ trả JSON hợp lệ theo đúng schema này, không markdown: {"question
       `Ngữ cảnh: ${context.conversationContext || '(không có)'}. Câu cũ không được lặp: ${previousQuestions || '(không có)'}.`,
       repairError ? `LỖI Ở LẦN TRƯỚC: ${repairError}. Hãy tạo lại toàn bộ JSON và sửa đúng lỗi này.` : '',
     ].filter(Boolean).join('\n');
-    const chat = startChat([], 'Bạn là AI Tutor. Chỉ trả JSON hợp lệ. Không tạo easierExample hoặc câu hỏi phụ. Hint chỉ là hướng dẫn, không phải câu hỏi.');
+    const chat = startChat([], 'Bạn là AI Tutor. Chỉ trả JSON hợp lệ. Bắt buộc tạo easierExample cho mỗi tutorStep; không dùng fallback. Hint chỉ là hướng dẫn, không phải câu hỏi.');
     const requestPrompt = contractPrompt;
     const parts = [{ text: requestPrompt }];
     if (context.sourceImage?.url) {
@@ -665,6 +671,66 @@ Chỉ trả JSON hợp lệ theo đúng schema này, không markdown: {"question
     repairError = error.message;
     }
   }
+  throw new Error(`Không thể tạo lesson AI Tutor: ${repairError || 'Gemini không trả về dữ liệu hợp lệ'}`);
+};
+
+const generateTutorQuestion = async (context = {}, index = 0) => {
+  let lastError;
+  let rejectedPrompt = '';
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const previousQuestions = (context.previousQuestions || []).filter(Boolean).join('\n- ');
+      const prompt = [
+        `Tạo đúng 1 câu hỏi AI Tutor mới cho bài gốc. Đây là câu ${index + 1}/5, biến thể ${attempt + 1}, mã biến thể ${context.generationSeed || `${Date.now()}-${index}-${attempt}`}; không tạo mảng questions và không tạo thêm câu nào khác.`,
+        'Prompt phải là một câu hỏi hoàn chỉnh, có đủ dữ kiện và yêu cầu cụ thể; không viết câu chung chung.',
+        'Giữ nguyên dạng bài, phép toán, biến và phương pháp. Nếu bài gốc là phép tính số học không có biến thì không thêm biến x hoặc đổi thành phương trình. Nếu là phương trình thì bắt buộc đổi ít nhất một hệ số/số liệu để tạo bài mới, khác số liệu và không lặp câu cũ.',
+        'Câu hỏi có title, prompt, interactionType, đúng 4 options, correctOptionId là số 0-3 và đúng 2 tutorSteps.',
+        'Mỗi tutorStep bắt buộc có title, explanation, analysis, easierExample và hint. easierExample là một câu hỏi dễ hơn nhưng độc lập, có đủ dữ kiện và yêu cầu rõ ràng; answer phải đúng với prompt; hint chỉ hướng dẫn ngắn, không chứa câu hỏi, dấu ? hoặc ____.',
+      'Nếu có bài điền, blanks là object {id,label,expectedTokenId}, tokens là object {id,label,type}; expectedTokenId phải trỏ đúng token. Nếu chỉ hướng dẫn thì blanks và tokens là [].',
+        'Không tạo visual, SVG hoặc hình ảnh. Chỉ trả JSON hợp lệ, không markdown theo dạng: {"question":{"title":"...","prompt":"...","interactionType":"...","options":["...","...","...","..."],"correctOptionId":0,"tutorSteps":[{"title":"...","explanation":"...","analysis":"...","easierExample":{"prompt":"Tính 10 - 3 = ?","answer":"7","hint":"Lấy 10 trừ 3."},"hint":"...","blanks":[],"tokens":[]},{"title":"...","explanation":"...","analysis":"...","easierExample":{"prompt":"Tính 6 - 2 = ?","answer":"4","hint":"Lấy 6 trừ 2."},"hint":"...","blanks":[],"tokens":[]}]}}',
+        `Ngôn ngữ: ${context.language || 'vi'}. Cấp học: ${context.educationLevel || 'middle'}. Môn: ${context.course || context.subjectArea || ''}.`,
+        `Bài gốc: ${context.sourceText || '(xem ảnh đính kèm)'}. Biểu thức gốc: ${context.sourceExpression || '(không có)'}.`,
+        `Ngữ cảnh cuộc trò chuyện hiện tại: ${context.conversationContext || '(không có)'}.`,
+        `Các câu không được lặp: ${previousQuestions || '(không có)'}.`,
+        rejectedPrompt ? `Prompt vừa bị từ chối vì bị trùng, tuyệt đối không được dùng lại. Hãy đổi dữ kiện hoặc cách hỏi, không được copy: ${rejectedPrompt}` : '',
+        lastError ? `Lần trước output không hợp lệ vì: ${lastError}. Hãy sửa đúng lỗi đó.` : '',
+      ].filter(Boolean).join('\n');
+      const chat = startChat([], 'Bạn là AI Tutor. Chỉ trả JSON hợp lệ. Bắt buộc tự tạo câu hỏi và easierExample; không dùng fallback.');
+      const parts = [{ text: prompt }];
+      if (context.sourceImage?.url) {
+        const imageResponse = await fetch(context.sourceImage.url);
+        if (imageResponse.ok) parts.push({ inlineData: { mimeType: imageResponse.headers.get('content-type') || 'image/jpeg', data: Buffer.from(await imageResponse.arrayBuffer()).toString('base64') } });
+      }
+      const raw = parseJson(extractResponseText(await makeRequestWithRetry(() => chat.sendMessage(parts))));
+      const question = normalizeQuestion(raw?.question || raw, index, context.sourceText, context.language, context, true);
+      const previous = new Set((context.previousQuestions || []).map(normalizeForMatch));
+      if (previous.has(normalizeForMatch(question.prompt))) {
+        rejectedPrompt = question.prompt;
+        throw new Error('Gemini returned a duplicated question');
+      }
+      const originalEquation = linearEquationData(context.sourceExpression || context.sourceText);
+      if (originalEquation?.kind === 'linear') {
+        const generatedEquation = linearEquationData(question.prompt);
+        if (!generatedEquation || generatedEquation.expression === originalEquation.expression) throw new Error('Gemini returned the original equation instead of a similar one');
+      }
+      return { ...question, id: `q${index + 1}` };
+    } catch (error) {
+      lastError = error.message;
+      console.error(`AI tutor question ${index + 1} generation failed:`, lastError);
+    }
+  }
+  throw new Error(`Không thể tạo câu AI Tutor ${index + 1}: ${lastError || 'Gemini không trả về dữ liệu hợp lệ'}`);
+};
+
+const generateLesson = async (context = {}) => {
+  const questions = [];
+  for (let index = 0; index < 5; index += 1) {
+    questions.push(await generateTutorQuestion({
+      ...context,
+      previousQuestions: [...(context.previousQuestions || []), ...questions.map(question => question.prompt)],
+    }, index));
+  }
+  return { sourceQuestionId: context.questionId || 'main', sourceText: context.sourceText || '', sourceImage: context.sourceImage || null, questions };
 };
 
 const makeLessonId = () => crypto.randomUUID();
@@ -688,9 +754,8 @@ const sanitizeQuestion = (raw, context = {}) => {
 };
 
 const generateQuestion = async ({ subject = 'Toán', topic = 'hằng đẳng thức', level = 'middle', language = 'vi' } = {}) => {
-  const lesson = await generateLesson({ sourceText: `${subject}: ${topic}`, language });
-  const question = lesson.questions[0];
+  const question = await generateTutorQuestion({ sourceText: `${subject}: ${topic}`, language, educationLevel: level }, 0);
   return { title: question.title, prompt: question.prompt, diagram: { type: 'none' }, options: question.options, correctId: question.correctOptionId, steps: question.tutorSteps.map(step => ({ title: step.title, content: step.explanation })), hint: 'Hãy đọc dữ kiện và thử từng bước.' };
 };
 
-module.exports = { fallbackLesson, sanitizeLesson, generateLesson, makeLessonId, fallbackQuestion, sanitizeQuestion, generateQuestion, makeQuestionId: makeLessonId };
+module.exports = { fallbackLesson, sanitizeLesson, generateLesson, generateTutorQuestion, makeLessonId, fallbackQuestion, sanitizeQuestion, generateQuestion, makeQuestionId: makeLessonId };

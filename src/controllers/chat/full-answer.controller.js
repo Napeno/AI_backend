@@ -2,6 +2,7 @@ const Conversation = require('../../models/conversation.model');
 const chatService = require('../../services/chat.service');
 const InterventionService = require('../../services/intervention.service');
 const InterventionQuizService = require('../../services/intervention-quiz.service');
+const { capturePracticeItem } = require('../../services/practice.service');
 
 const getFullAnswer = async (req, res) => {
   try {
@@ -23,6 +24,20 @@ const getFullAnswer = async (req, res) => {
         const miniQuiz = await InterventionQuizService.ensureMiniQuizForGate(conversation, language);
         if (miniQuiz) {
           gateEvaluation.intervention.miniQuiz = miniQuiz;
+        }
+      }
+
+      if (gateEvaluation.rejected) {
+        try {
+          await capturePracticeItem({
+            userId: req.user._id,
+            conversation,
+            blocker: 'incorrect_answer',
+            feedback: gateEvaluation.message,
+            language,
+          });
+        } catch (error) {
+          console.error('Error capturing practice item from wrong mini-quiz answer:', error);
         }
       }
 

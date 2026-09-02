@@ -4,10 +4,30 @@ const PracticeItem = require('../models/practice-item.model');
 const REVIEW_DAYS = [1, 3, 7];
 const MAX_TURNS_IN_PROMPT = 6;
 const QUESTION_TYPES = ['multiple_choice', 'true_false', 'fill_blank', 'long_answer'];
+const normalizePracticePrompt = value => String(value || '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+const isGeminiTransportError = error => Boolean(
+  error?.status
+  || error?.response?.status
+  || /No Google API keys configured|No response from Gemini API|Invalid response format from Gemini API/i.test(String(error?.message || '')),
+);
 
 const getLastUserQuestion = (history = []) => {
   const message = [...history].reverse().find(entry => entry.role === 'user' && entry.parts?.[0]?.text);
   return String(message?.parts?.[0]?.text || '').trim().slice(0, 1200);
+};
+
+const getConversationTitle = (conversation = {}) => {
+  const firstUserMessage = (conversation.history || []).find(entry => {
+    const text = String(entry.parts?.[0]?.text || '').trim();
+    return entry.role === 'user'
+      && text
+      && !text.includes('Bạn là một người thầy')
+      && !text.includes('You are a friendly friend')
+      && !text.includes('QUAN TRỌNG: Bạn KHÔNG BAO GIỜ');
+  });
+  if (!firstUserMessage) return 'New Chat';
+  const title = String(firstUserMessage.parts[0].text).trim();
+  return title.slice(0, 50) + (title.length > 50 ? '...' : '');
 };
 
 const getPracticeSourceQuestion = (conversation = {}) => {
@@ -30,6 +50,7 @@ const capturePracticeItem = async ({ userId, conversation, blocker, feedback = '
     { user: userId, sessionId: conversation.sessionId, sourceQuestion, blocker },
     {
       $set: {
+        conversationTitle: getConversationTitle(conversation),
         educationLevel: conversation.educationLevel,
         subjectArea: conversation.subjectArea,
         sourceFeedback: String(feedback || '').slice(0, 1200),
@@ -53,28 +74,7 @@ const parseJson = (text) => {
   return JSON.parse(json.replace(/\\(?!["\\/bfnrtu])/g, '\\\\'));
 };
 
-const getFallbackPractice = (item, language = 'en') => {
-  const prompts = language === 'vi'
-    ? {
-      understand_question: ['Hãy viết ngắn gọn: đề cho gì và yêu cầu tìm gì?', 'Tách đề thành “dữ kiện” và “điều cần tìm”.'],
-      formula: ['Hãy nêu công thức hoặc khái niệm em nghĩ cần dùng, rồi nói vì sao.', 'Nhìn lại đại lượng cần tìm trước khi chọn công thức.'],
-      start: ['Nếu chỉ được làm một việc đầu tiên, em sẽ làm gì?', 'Hãy bắt đầu bằng dữ kiện rõ nhất trong đề.'],
-      calculation: ['Hãy chọn một phép tính hoặc dòng biến đổi em muốn kiểm tra lại.', 'Kiểm tra từng phép tính nhỏ trước khi làm tiếp.'],
-      incorrect_answer: ['Hãy thử lại một bước khác với lần trước và giải thích vì sao em chọn bước đó.', 'Đừng vội làm lại toàn bộ; hãy sửa đúng một bước.'],
-    }
-    : {
-      understand_question: ['Briefly write what the problem gives and asks for.', 'Separate the given information from the goal.'],
-      formula: ['Name the formula or idea you think applies, then say why.', 'Look at the target quantity before choosing a formula.'],
-      start: ['If you could do only one first action, what would it be?', 'Start with the clearest given information.'],
-      calculation: ['Choose one calculation or transformation line to check again.', 'Check each small calculation before continuing.'],
-      incorrect_answer: ['Try one step differently from last time and explain why.', 'Do not restart everything; repair one step first.'],
-    };
-  const [prompt, hint] = prompts[item.blocker] || prompts.incorrect_answer;
-
-  return { prompt, hint, answerGuide: '' };
-};
-
-const buildPracticePrompt = (item, language = 'en', questionType = 'long_answer') => {
+const buildPracticePrompt = (item, language = 'en', questionType = 'long_answer', repairError = '') => {
   const languageInstruction = language === 'vi' ? 'Trả lời bằng tiếng Việt.' : 'Respond in English.';
   const formats = {
     multiple_choice: {
@@ -95,63 +95,39 @@ const buildPracticePrompt = (item, language = 'en', questionType = 'long_answer'
     },
   }[questionType] || null;
   const format = formats || formats.long_answer;
+  const previousVariants = (item.practice?.variants || [])
+    .map(variant => `${variant.questionType}: ${variant.prompt}`)
+    .join('\n');
   return `${languageInstruction}
 Tạo một bài ôn mới mất không quá 2 phút, cùng đúng kỹ năng cần luyện nhưng là bài MỚI.
 Đổi dữ kiện, số liệu, bối cảnh hoặc cách diễn đạt để không sao chép câu hay đáp án của bài gốc. Không dùng lại nguyên câu dài từ bài gốc, không hỏi lại bài gốc và không tiết lộ đáp án bài gốc.
 ${format.task}
 
+Đây là loại câu bắt buộc: ${questionType}. Chỉ tạo đúng loại này, không đổi sang loại khác. Không được tạo câu giống hoặc chỉ đổi nhãn của các câu đã có:
+${previousVariants || '(chưa có câu nào)'}
+
 Bài gốc chỉ để nhận biết kỹ năng: ${item.sourceQuestion}
 Điểm học sinh từng kẹt: ${item.blocker}
 Phản hồi trước đó: ${item.sourceFeedback || 'Không có'}
 
-Trả JSON hợp lệ với các trường bắt buộc prompt, hint, answerGuide; ${format.schema}${questionType === 'multiple_choice' ? ', options, correctOptionId' : questionType === 'true_false' ? ', correctAnswer' : ''}.
-prompt là bài mới; hint gợi mở nhưng không giải hộ; answerGuide chỉ để hệ thống chấm. Nếu có công thức toán, luôn đặt biểu thức trong \\(...\\) để giao diện hiển thị đúng.`;
+Trả JSON hợp lệ với trường questionType chính xác là "${questionType}" và các trường bắt buộc prompt, hint, answerGuide; ${format.schema}${questionType === 'multiple_choice' ? ', options, correctOptionId' : questionType === 'true_false' ? ', correctAnswer' : ''}.
+prompt là bài mới; hint gợi mở nhưng không giải hộ; answerGuide chỉ để hệ thống chấm. Nếu có công thức toán, luôn đặt biểu thức trong \\(...\\) để giao diện hiển thị đúng.${repairError ? `
+
+LỖI Ở LẦN TRƯỚC: ${repairError}. Hãy tạo lại toàn bộ JSON và sửa đúng lỗi đó.` : ''}`;
 };
 
 const getReadVariant = (item, questionType) => {
-  const variant = item.practice?.variants?.find(entry => entry.questionType === questionType);
-  if (variant) return variant;
-  if (questionType === 'long_answer' && item.practice?.prompt) {
-    return {
-      questionType: 'long_answer',
-      prompt: item.practice.prompt,
-      hint: item.practice.hint || '',
-      answerGuide: item.practice.answerGuide || '',
-      turns: item.practice.turns || [],
-      incorrectAttempts: item.practice.incorrectAttempts || 0,
-      status: item.status || 'new',
-      reviewCount: item.reviewCount || 0,
-      nextReviewAt: item.nextReviewAt,
-      lastReviewedAt: item.lastReviewedAt,
-    };
-  }
-  return null;
+  return item.practice?.variants?.find(entry => entry.questionType === questionType) || null;
 };
 
 const ensurePracticeVariant = (item, questionType) => {
   item.practice ||= {};
   item.practice.variants ||= [];
-  const existing = item.practice.variants.find(entry => entry.questionType === questionType);
-  if (existing) return existing;
-  if (questionType !== 'long_answer' || !item.practice.prompt) return null;
-
-  const legacy = {
-    questionType,
-    prompt: item.practice.prompt,
-    hint: item.practice.hint || '',
-    answerGuide: item.practice.answerGuide || '',
-    turns: item.practice.turns || [],
-    incorrectAttempts: item.practice.incorrectAttempts || 0,
-    status: item.status || 'new',
-    reviewCount: item.reviewCount || 0,
-    nextReviewAt: item.nextReviewAt,
-    lastReviewedAt: item.lastReviewedAt,
-  };
-  item.practice.variants.push(legacy);
-  return item.practice.variants[item.practice.variants.length - 1];
+  return item.practice.variants.find(entry => entry.questionType === questionType) || null;
 };
 
 const validateGeneratedPractice = (parsed, questionType) => {
+  if (parsed?.questionType !== questionType) return null;
   const prompt = String(parsed?.prompt || '').trim();
   const hint = String(parsed?.hint || '').trim();
   const answerGuide = String(parsed?.answerGuide || '').trim();
@@ -173,12 +149,27 @@ const validateGeneratedPractice = (parsed, questionType) => {
 
 const generatePracticeVariant = async (item, questionType, language = 'en') => {
   if (!QUESTION_TYPES.includes(questionType)) throw new Error('Invalid practice question type');
-  const chat = startChat([], language === 'vi'
-    ? 'Bạn tạo bài ôn mới theo đúng dạng được yêu cầu. Chỉ trả JSON hợp lệ.'
-    : 'Create a new practice task in the requested format. Return valid JSON only.');
-  const result = await makeRequestWithRetry(() => chat.sendMessage(buildPracticePrompt(item, language, questionType)));
-  const variant = validateGeneratedPractice(parseJson(extractResponseText(result)), questionType);
-  if (!variant) throw new Error('Gemini returned invalid practice format');
+  let repairError = '';
+  let variant;
+  while (!variant) {
+    try {
+      const chat = startChat([], language === 'vi'
+        ? 'Bạn tạo đúng một bài ôn mới theo loại được yêu cầu. Chỉ trả JSON hợp lệ.'
+        : 'Create exactly one new practice task in the requested type. Return valid JSON only.');
+      const result = await makeRequestWithRetry(() => chat.sendMessage(buildPracticePrompt(item, language, questionType, repairError)));
+      variant = validateGeneratedPractice(parseJson(extractResponseText(result)), questionType);
+      if (!variant) throw new Error(`Gemini returned invalid ${questionType} practice format`);
+      const existingPrompts = new Set((item.practice?.variants || []).map(entry => normalizePracticePrompt(entry.prompt)));
+      if (existingPrompts.has(normalizePracticePrompt(variant.prompt)) || normalizePracticePrompt(item.sourceQuestion) === normalizePracticePrompt(variant.prompt)) {
+        variant = undefined;
+        throw new Error(`Gemini returned a duplicate ${questionType} practice question`);
+      }
+    } catch (error) {
+      console.error('Practice question generation failed:', error.message);
+      if (isGeminiTransportError(error)) throw error;
+      repairError = error.message;
+    }
+  }
 
   item.practice ||= {};
   item.practice.variants ||= [];
@@ -198,55 +189,6 @@ const formatRecentTurns = (item, variant = item.practice) => (variant?.turns || 
   .join('\n');
 
 const normalizeAnswer = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-
-const getFallbackGuidance = (variant, action, answer, questionType, language = 'en') => {
-  const vi = language === 'vi';
-  if (action === 'hint') {
-    return {
-      isCorrect: null,
-      isMeaningfulAttempt: false,
-      feedback: vi ? '💡 Hãy dùng gợi ý của bài và kiểm tra từng dữ kiện một.' : '💡 Use the task hint and check one piece of information at a time.',
-      hint: variant.hint,
-      nextQuestion: '',
-    };
-  }
-  if (action === 'solution') {
-    return {
-      isCorrect: null,
-      isMeaningfulAttempt: false,
-      feedback: vi ? 'Tớ chưa thể tạo lời giải mẫu lúc này. Em thử lại sau nhé.' : 'I cannot create the sample solution right now. Please try again shortly.',
-      hint: '',
-      nextQuestion: '',
-    };
-  }
-
-  if (questionType === 'multiple_choice' || questionType === 'true_false' || questionType === 'fill_blank') {
-    const isCorrect = questionType === 'multiple_choice'
-      ? answer === variant.correctOptionId
-      : questionType === 'true_false'
-        ? answer === String(variant.correctAnswer)
-        : normalizeAnswer(answer) === normalizeAnswer(variant.answerGuide);
-    return {
-      isCorrect,
-      isMeaningfulAttempt: true,
-      feedback: isCorrect
-        ? (vi ? 'Chính xác! Câu trả lời của em đúng.' : 'Correct! Your answer is right.')
-        : (vi ? 'Câu trả lời chưa đúng. Em hãy xem lại gợi ý và thử lại một bước.' : 'That answer is not correct yet. Review the hint and try one step again.'),
-      hint: isCorrect ? '' : variant.hint,
-      nextQuestion: isCorrect
-        ? (vi ? 'Hãy giải thích ngắn gọn vì sao đáp án này đúng.' : 'Briefly explain why this answer is correct.')
-        : (vi ? 'Em hãy kiểm tra lại dữ kiện nào quyết định đáp án.' : 'Check which piece of information determines the answer.'),
-    };
-  }
-
-  return {
-    isCorrect: null,
-    isMeaningfulAttempt: answer.trim().length >= 2,
-    feedback: vi ? 'Tớ đã nhận bài làm của em nhưng chưa thể chấm bằng AI lúc này. Em thử gửi lại sau nhé.' : 'I received your work but cannot grade it with AI right now. Please try again shortly.',
-    hint: variant.hint,
-    nextQuestion: vi ? 'Em hãy tự kiểm tra lại một bước quan trọng trong bài.' : 'Check one important step in your work again.',
-  };
-};
 
 const requestPracticeGuidance = async (item, action, answer = '', language = 'en', questionType = 'long_answer') => {
   const variant = getReadVariant(item, questionType);
@@ -270,25 +212,31 @@ ${action === 'attempt' ? `Bước học sinh vừa gửi: ${answer}` : ''}
 Schema: {"isCorrect":true|false|null,"isMeaningfulAttempt":true|false,"feedback":"...","hint":"...","nextQuestion":"..."}.
 Với hint hoặc solution, isCorrect là null. Với attempt, feedback phải nhắc đến bước hoặc phép tính học sinh vừa gửi; nextQuestion là bắt buộc và chỉ yêu cầu đúng một bước tiếp theo phù hợp với phản hồi đó. Không dùng các câu mẫu như “hãy viết một công thức” nếu không giải thích được công thức nào liên quan. Nếu có công thức toán, luôn đặt biểu thức trong \\(...\\) để giao diện hiển thị đúng.`;
 
-  try {
-    const chat = startChat([], language === 'vi'
-      ? 'Bạn là gia sư gợi mở. Chỉ trả JSON hợp lệ.'
-      : 'You are a guided tutor. Return valid JSON only.');
-    const parsed = parseJson(extractResponseText(await makeRequestWithRetry(() => chat.sendMessage(prompt))));
-    if (!String(parsed?.feedback || '').trim()) {
-      return null;
+  let repairError = '';
+  while (true) {
+    try {
+      const chat = startChat([], language === 'vi'
+        ? 'Bạn là gia sư gợi mở. Chỉ trả JSON hợp lệ.'
+        : 'You are a guided tutor. Return valid JSON only.');
+      const parsed = parseJson(extractResponseText(await makeRequestWithRetry(() => chat.sendMessage(`${prompt}${repairError ? `\n\nLỖI Ở LẦN TRƯỚC: ${repairError}. Hãy sửa và trả lại toàn bộ JSON.` : ''}`))));
+      if (!parsed || typeof parsed !== 'object' || !String(parsed.feedback || '').trim()) throw new Error('Gemini returned invalid practice guidance');
+      if (action !== 'attempt' && parsed.isCorrect !== null) throw new Error('Gemini returned an answer for a non-attempt action');
+      if (action === 'attempt' && typeof parsed.isCorrect !== 'boolean') throw new Error('Gemini returned invalid practice correctness');
+      if (action === 'attempt' && typeof parsed.isMeaningfulAttempt !== 'boolean') throw new Error('Gemini returned invalid practice attempt status');
+      if (action === 'attempt' && !String(parsed.nextQuestion || '').trim()) throw new Error('Gemini returned no next step for the practice attempt');
+      if (action === 'hint' && !String(parsed.hint || '').trim()) throw new Error('Gemini returned no hint for the practice hint request');
+      return {
+        isCorrect: action === 'attempt' && typeof parsed.isCorrect === 'boolean' ? parsed.isCorrect : null,
+        isMeaningfulAttempt: action === 'attempt' && parsed.isMeaningfulAttempt === true,
+        feedback: String(parsed.feedback).trim().slice(0, 2000),
+        hint: String(parsed.hint || '').trim().slice(0, 1200),
+        nextQuestion: String(parsed.nextQuestion || '').trim().slice(0, 1200),
+      };
+    } catch (error) {
+      console.error('Practice guidance generation failed:', error.message);
+      if (isGeminiTransportError(error)) throw error;
+      repairError = error.message;
     }
-
-    return {
-      isCorrect: action === 'attempt' && typeof parsed.isCorrect === 'boolean' ? parsed.isCorrect : null,
-      isMeaningfulAttempt: action === 'attempt' && parsed.isMeaningfulAttempt === true,
-      feedback: String(parsed.feedback).trim().slice(0, 2000),
-      hint: String(parsed.hint || '').trim().slice(0, 1200),
-      nextQuestion: String(parsed.nextQuestion || '').trim().slice(0, 1200),
-    };
-  } catch (error) {
-    console.error('Error guiding practice interaction:', error);
-    return getFallbackGuidance(variant, action, answer, questionType, language);
   }
 };
 
@@ -364,24 +312,17 @@ const toPublicPracticeVariant = (variant) => variant ? ({
   lastReviewedAt: variant.lastReviewedAt,
 }) : null;
 
-const toPublicPracticeItem = (item) => ({
+const toPublicPracticeItem = (item, conversationTitle = item.conversationTitle) => ({
   id: item._id,
   sessionId: item.sessionId,
+  conversationTitle,
+  title: conversationTitle || item.sourceQuestion || 'Luyện lại một bước',
   educationLevel: item.educationLevel,
   subjectArea: item.subjectArea,
   sourceQuestion: item.sourceQuestion,
   blocker: item.blocker,
   sourceFeedback: item.sourceFeedback,
-  practice: item.practice?.prompt ? {
-    prompt: item.practice.prompt,
-    hint: item.practice.hint,
-    turns: item.practice.turns || [],
-    incorrectAttempts: item.practice.incorrectAttempts || 0,
-  } : null,
-  variants: [...(item.practice?.variants || []), ...(item.practice?.variants?.some(entry => entry.questionType === 'long_answer') || !item.practice?.prompt ? [] : [{
-    questionType: 'long_answer', prompt: item.practice.prompt, hint: item.practice.hint || '', turns: item.practice.turns || [], incorrectAttempts: item.practice.incorrectAttempts || 0,
-    status: item.status, reviewCount: item.reviewCount, nextReviewAt: item.nextReviewAt, lastReviewedAt: item.lastReviewedAt,
-  }])].map(toPublicPracticeVariant),
+  variants: (item.practice?.variants || []).map(toPublicPracticeVariant),
   canShowSolution: canShowPracticeSolution(item),
   status: item.status,
   reviewCount: item.reviewCount,
@@ -399,9 +340,8 @@ module.exports = {
   capturePracticeItem,
   evaluatePracticeAttempt,
   generatePracticeVariant,
-  getFallbackPractice,
-  getFallbackGuidance,
   getPracticeSourceQuestion,
+  getConversationTitle,
   parseJson,
   requestPracticeGuidance,
   toPublicPracticeVariant,

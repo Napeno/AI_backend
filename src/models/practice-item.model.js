@@ -95,6 +95,11 @@ const practiceItemSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  conversationTitle: {
+    type: String,
+    required: false,
+    maxlength: 120,
+  },
   educationLevel: {
     type: String,
     required: false,

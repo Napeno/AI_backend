@@ -3,6 +3,7 @@ const chatService = require('../../services/chat.service');
 const InterventionService = require('../../services/intervention.service');
 const InterventionQuizService = require('../../services/intervention-quiz.service');
 const { capturePracticeItem } = require('../../services/practice.service');
+const ThinkerService = require('../../services/thinker.service');
 
 const getErrorDetails = (error) => ({
   name: error?.name || 'Error',
@@ -36,6 +37,20 @@ const continueChat = async (req, res) => {
         const miniQuiz = await InterventionQuizService.ensureMiniQuizForGate(conversation, language);
         if (miniQuiz) {
           gateEvaluation.intervention.miniQuiz = miniQuiz;
+        }
+      }
+
+      if (gateEvaluation.rejected) {
+        try {
+          await capturePracticeItem({
+            userId: req.user._id,
+            conversation,
+            blocker: 'incorrect_answer',
+            feedback: gateEvaluation.message,
+            language,
+          });
+        } catch (error) {
+          console.error('Error capturing practice item from wrong mini-quiz answer:', error);
         }
       }
 
@@ -103,6 +118,8 @@ const continueChat = async (req, res) => {
     
     await conversation.save();
 
+    const challengeBadges = await ThinkerService.awardChallengeBadges(req.user._id, conversation);
+
     if (gateResponse?.type === 'blocker_choice') {
       try {
         await capturePracticeItem({
@@ -119,6 +136,7 @@ const continueChat = async (req, res) => {
     
     res.json({
       message: modelResponse,
+      challengeBadges,
       intervention: InterventionService.buildInactiveIntervention(conversation, language),
     });
   } catch (error) {

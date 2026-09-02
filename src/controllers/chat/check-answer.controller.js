@@ -91,6 +91,7 @@ const checkAnswer = async (req, res, imageData = null) => {
 
   recordAnswerEvaluation(conversation, evaluation, isCorrect);
   const badge = await ThinkerService.awardSelfTrialBadge(req.user._id, conversation);
+  const challengeBadges = await ThinkerService.awardChallengeBadges(req.user._id, conversation);
   if (isCorrect === false) responseText += InterventionService.getFoundationSupportMessage(conversation, language);
 
   conversation.history.push({
@@ -127,7 +128,8 @@ const checkAnswer = async (req, res, imageData = null) => {
     totalPoints: updatedUser?.points ?? null,
     currentRank: updatedUser?.rank ?? null,
     pointsAwarded,
-    badge,
+    badge: badge || challengeBadges[0] || null,
+    challengeBadges,
     intervention: InterventionService.buildInactiveIntervention(conversation, language),
     imageUrl: answerImageUrl,
   });

@@ -1,8 +1,10 @@
 const PracticeItem = require('../models/practice-item.model');
+const Conversation = require('../models/conversation.model');
 const User = require('../models/user.model');
 const mongoose = require('mongoose');
 const { awardChestnuts } = require('../services/reward.service');
 const RankingService = require('../services/ranking.service');
+const ThinkerService = require('../services/thinker.service');
 const RULES = require('../config/intervention-rules.json');
 const {
   addAssistantTurn,
@@ -15,7 +17,22 @@ const {
   QUESTION_TYPES,
   requestPracticeGuidance,
   toPublicPracticeItem,
+  getConversationTitle,
 } = require('../services/practice.service');
+
+const getConversationTitles = async (userId, items) => {
+  const sessionIds = [...new Set(items.map(item => item.sessionId).filter(Boolean))];
+  if (!sessionIds.length) return new Map();
+  const conversations = await Conversation.find({ user: userId, sessionId: { $in: sessionIds } })
+    .select('sessionId history')
+    .lean();
+  return new Map(conversations.map(conversation => [conversation.sessionId, getConversationTitle(conversation)]));
+};
+
+const toPublicPracticeItems = async (userId, items) => {
+  const titles = await getConversationTitles(userId, items);
+  return items.map(item => toPublicPracticeItem(item, titles.get(item.sessionId)));
+};
 
 const getItemForUser = (userId, itemId) => mongoose.isValidObjectId(itemId)
   ? PracticeItem.findOne({ _id: itemId, user: userId })
@@ -43,7 +60,8 @@ const getRecommendation = async (req, res) => {
       return res.json({ recommendation: null });
     }
 
-    return res.json({ recommendation: toPublicPracticeItem(item) });
+    const [recommendation] = await toPublicPracticeItems(req.user._id, [item]);
+    return res.json({ recommendation });
   } catch (error) {
     console.error('Error fetching practice recommendation:', error);
     return res.status(500).json({ message: 'Unable to fetch practice recommendation' });
@@ -71,7 +89,7 @@ const getItems = async (req, res) => {
       .limit(limit);
 
     return res.json({
-      items: items.map(toPublicPracticeItem),
+      items: await toPublicPracticeItems(req.user._id, items),
       subjects: subjects.filter(Boolean),
       pagination: { page, limit, totalItems, totalPages },
     });
@@ -88,7 +106,8 @@ const getItem = async (req, res) => {
       return res.status(404).json({ message: 'Practice item not found' });
     }
 
-    return res.json({ item: toPublicPracticeItem(item) });
+    const [publicItem] = await toPublicPracticeItems(req.user._id, [item]);
+    return res.json({ item: publicItem });
   } catch (error) {
     console.error('Error fetching practice item:', error);
     return res.status(500).json({ message: 'Unable to fetch practice item' });
@@ -132,7 +151,7 @@ const submitAttempt = async (req, res) => {
     if (action === 'attempt') {
       result = await evaluatePracticeAttempt(item, answer, language, questionType);
       if (!result) {
-        return res.status(503).json({ message: language === 'vi' ? 'ThinkBridge chưa thể chấm bài lúc này. Em thử gửi lại sau ít phút nhé.' : 'ThinkBridge cannot grade this attempt right now. Please try again shortly.' });
+        return res.status(503).json({ message: language === 'vi' ? 'ThinkBridge đang tạo lại phản hồi đúng cho bài này.' : 'ThinkBridge is regenerating a correct response for this task.' });
       }
       addPracticeTurn(item, { role: 'student', action, content: answer }, variant);
       if (result.isCorrect === false && result.isMeaningfulAttempt) {
@@ -154,6 +173,9 @@ const submitAttempt = async (req, res) => {
     }
     addAssistantTurn(item, action, result, variant);
     await item.save();
+    const challengeBadges = action === 'attempt' && result.isCorrect === true
+      ? await ThinkerService.awardChallengeBadges(req.user._id)
+      : [];
     let chestnutsAwarded = 0;
     let pointsAwarded = 0;
     let totalPoints = null;
@@ -186,16 +208,20 @@ const submitAttempt = async (req, res) => {
     return res.json({
       ...result,
       action,
-      item: toPublicPracticeItem(item),
+      item: (await toPublicPracticeItems(req.user._id, [item]))[0],
       chestnutsAwarded,
       totalChestnuts,
       pointsAwarded,
       totalPoints,
       currentRank,
+      challengeBadges,
     });
   } catch (error) {
     console.error('Error submitting practice attempt:', error);
-    return res.status(500).json({ message: 'Unable to check practice attempt' });
+    return res.status(503).json({
+      message: req.body?.language === 'vi' ? 'ThinkBridge chưa thể tạo phản hồi đúng lúc này.' : 'ThinkBridge cannot create the correct response right now.',
+      details: error.message,
+    });
   }
 };
 
@@ -209,10 +235,13 @@ const generateItem = async (req, res) => {
     if (!item) return res.status(404).json({ message: 'Practice item not found' });
 
     const variant = await generatePracticeVariant(item, questionType, req.body?.language || 'en');
-    return res.json({ item: toPublicPracticeItem(item), questionType: variant.questionType });
+    return res.json({ item: (await toPublicPracticeItems(req.user._id, [item]))[0], questionType: variant.questionType });
   } catch (error) {
     console.error('Error generating practice question:', error);
-    return res.status(503).json({ message: req.body?.language === 'vi' ? 'ThinkBridge chưa thể tạo bài ôn lúc này. Em thử lại sau nhé.' : 'ThinkBridge cannot create this practice question right now. Please try again.' });
+    return res.status(503).json({
+      message: req.body?.language === 'vi' ? 'ThinkBridge chưa thể tạo bài ôn lúc này.' : 'ThinkBridge cannot create this practice question right now.',
+      details: error.message,
+    });
   }
 };
 

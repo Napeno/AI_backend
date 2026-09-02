@@ -362,6 +362,7 @@ test('keeps a mini quiz open and gives its stored hint after a wrong choice', ()
   });
 
   assert.equal(result.allowed, false);
+  assert.equal(result.rejected, true);
   assert.equal(result.intervention.active, true);
   assert.match(result.message, /Xem lại bước đầu tiên/);
 });

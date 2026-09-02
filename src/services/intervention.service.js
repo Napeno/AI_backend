@@ -563,6 +563,7 @@ const evaluateHintRequest = (conversation, language = 'en', gateResponse = null)
   if (gateResult.rejected) {
     return {
       allowed: false,
+      rejected: true,
       message: gateResult.message,
       intervention: gateResult.intervention,
     };
@@ -629,6 +630,7 @@ const evaluateFullAnswerRequest = (conversation, language = 'en', gateResponse =
   if (gateResult.rejected) {
     return {
       allowed: false,
+      rejected: true,
       message: gateResult.message,
       intervention: gateResult.intervention,
     };

@@ -4,12 +4,12 @@ const {
   applyPracticeResult,
   buildPracticePrompt,
   canShowPracticeSolution,
-  getFallbackPractice,
-  getFallbackGuidance,
   getPracticeSourceQuestion,
+  getConversationTitle,
   parseJson,
   validateGeneratedPractice,
   toPublicPracticeItem,
+  ensurePracticeVariant,
 } = require('../src/services/practice.service');
 const { parsePagination } = require('../src/controllers/practice.controller');
 
@@ -45,13 +45,6 @@ test('keeps an incorrect practice item due now without changing rewards', () => 
   assert.equal(item.points, undefined);
 });
 
-test('provides a non-quiz fallback prompt for each saved blocker', () => {
-  const practice = getFallbackPractice({ blocker: 'start' }, 'vi');
-
-  assert.match(practice.prompt, /việc đầu tiên/);
-  assert.match(practice.hint, /dữ kiện/);
-});
-
 test('uses the selected conversation question as the practice source', () => {
   const source = getPracticeSourceQuestion({
     history: [{ role: 'user', parts: [{ text: 'Đề dài cũ' }] }],
@@ -65,6 +58,15 @@ test('uses the selected conversation question as the practice source', () => {
   });
 
   assert.equal(source, 'Câu b\nx + 4');
+});
+
+test('uses the first real user message as the saved conversation title', () => {
+  assert.equal(getConversationTitle({
+    history: [
+      { role: 'user', parts: [{ text: 'Bạn là một người thầy thân thiện và kiên nhẫn' }] },
+      { role: 'user', parts: [{ text: 'Giúp em giải phương trình này' }] },
+    ],
+  }), 'Giúp em giải phương trình này');
 });
 
 test('requires two meaningful incorrect attempts before showing a sample solution', () => {
@@ -91,6 +93,20 @@ test('gives each practice type a distinct generation contract', () => {
   assert.match(buildPracticePrompt({}, 'vi', 'long_answer'), /đúng một câu tự luận rõ ràng/);
 });
 
+test('requires the requested type and excludes existing questions from the next prompt', () => {
+  const item = {
+    sourceQuestion: 'Tính 12 + 5',
+    blocker: 'calculation',
+    practice: { variants: [{ questionType: 'long_answer', prompt: 'Tính 20 + 4.' }] },
+  };
+  const prompt = buildPracticePrompt(item, 'vi', 'multiple_choice');
+
+  assert.match(prompt, /loại câu bắt buộc: multiple_choice/i);
+  assert.match(prompt, /Tính 20 \+ 4/);
+  assert.match(prompt, /questionType chính xác là "multiple_choice"/);
+  assert.equal(validateGeneratedPractice({ prompt: 'Câu', hint: 'Gợi ý', answerGuide: 'A', questionType: 'true_false' }, 'multiple_choice'), null);
+});
+
 test('accepts Gemini JSON containing raw LaTex backslashes', () => {
   const rawJson = `{"feedback":"Ta có ${'\\'}(x+1${'\\'})^2","nextQuestion":"Thử khai triển biểu thức."}`;
   const parsed = parseJson(rawJson);
@@ -107,39 +123,22 @@ test('uses safe pagination defaults and limits', () => {
 
 test('validates each generated practice format before saving it', () => {
   const base = { prompt: 'Câu mới', hint: 'Đọc kỹ đề', answerGuide: 'Đáp án' };
-  assert.equal(validateGeneratedPractice(base, 'long_answer').questionType, 'long_answer');
+  assert.equal(validateGeneratedPractice({ ...base, questionType: 'long_answer' }, 'long_answer').questionType, 'long_answer');
   const options = ['A', 'B', 'C', 'D'].map(id => ({ id, text: id }));
-  assert.equal(validateGeneratedPractice({ ...base, options, correctOptionId: 'A' }, 'multiple_choice').correctOptionId, 'A');
-  assert.equal(validateGeneratedPractice({ ...base, correctAnswer: false }, 'true_false').correctAnswer, false);
-  assert.equal(validateGeneratedPractice({ ...base, prompt: 'Điền _____ vào đây' }, 'fill_blank').questionType, 'fill_blank');
-  assert.equal(validateGeneratedPractice({ ...base, options: options.slice(0, 2), correctOptionId: 'A' }, 'multiple_choice'), null);
+  assert.equal(validateGeneratedPractice({ ...base, questionType: 'multiple_choice', options, correctOptionId: 'A' }, 'multiple_choice').correctOptionId, 'A');
+  assert.equal(validateGeneratedPractice({ ...base, questionType: 'true_false', correctAnswer: false }, 'true_false').correctAnswer, false);
+  assert.equal(validateGeneratedPractice({ ...base, questionType: 'fill_blank', prompt: 'Điền _____ vào đây' }, 'fill_blank').questionType, 'fill_blank');
+  assert.equal(validateGeneratedPractice({ ...base, questionType: 'multiple_choice', options: options.slice(0, 2), correctOptionId: 'A' }, 'multiple_choice'), null);
   assert.equal(validateGeneratedPractice(base, 'fill_blank'), null);
 });
 
-test('exposes legacy practice as a long-answer variant without its answer guide', () => {
+test('does not expose legacy practice as a question variant', () => {
   const publicItem = toPublicPracticeItem({
-    _id: 'item-1', sourceQuestion: 'Câu gốc', blocker: 'start', status: 'new', reviewCount: 0,
+    _id: 'item-1', conversationTitle: 'Tiêu đề cuộc trò chuyện', sourceQuestion: 'Câu gốc', blocker: 'start', status: 'new', reviewCount: 0,
     practice: { prompt: 'Câu cũ', hint: 'Gợi ý cũ', answerGuide: 'Bí mật', turns: [], incorrectAttempts: 0 },
   });
 
-  assert.equal(publicItem.variants[0].questionType, 'long_answer');
-  assert.equal(publicItem.variants[0].answerGuide, undefined);
-});
-
-test('keeps short-answer practice usable when Gemini grading is unavailable', () => {
-  const variant = { questionType: 'fill_blank', answerGuide: '8', hint: 'Trừ 7 khỏi 15.' };
-  const result = getFallbackGuidance(variant, 'attempt', '8', 'fill_blank', 'vi');
-
-  assert.equal(result.isCorrect, true);
-  assert.equal(result.isMeaningfulAttempt, true);
-  assert.match(result.feedback, /Chính xác/);
-});
-
-test('does not block a long-answer submission when Gemini grading is unavailable', () => {
-  const result = getFallbackGuidance({ hint: 'Kiểm tra phép chuyển vế.' }, 'attempt', 'x = 19', 'long_answer', 'vi');
-
-  assert.equal(result.isCorrect, null);
-  assert.equal(result.isMeaningfulAttempt, true);
-  assert.match(result.feedback, /chưa thể chấm/);
-  assert.ok(result.nextQuestion);
+  assert.deepEqual(publicItem.variants, []);
+  assert.equal(publicItem.title, 'Tiêu đề cuộc trò chuyện');
+  assert.equal(ensurePracticeVariant({ practice: { prompt: 'Câu cũ', variants: [] } }, 'long_answer'), null);
 });

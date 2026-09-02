@@ -48,7 +48,12 @@ const tutorQuestionSchema = new mongoose.Schema({
 
 const aiTutorLessonSchema = new mongoose.Schema({
   lessonId: { type: String, required: true, unique: true },
-  generationVersion: { type: Number, default: 13 },
+  generationVersion: { type: Number, default: 14 },
+  generationStatus: { type: String, enum: ['generating', 'ready', 'failed'], default: 'generating' },
+  generatedQuestionCount: { type: Number, default: 0, min: 0, max: 5 },
+  generationError: { type: String, default: '' },
+  waitingForQuestion: { type: Boolean, default: false },
+  generationContext: { type: mongoose.Schema.Types.Mixed, default: null },
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sessionId: { type: String, required: true },
   sourceQuestionId: { type: String, required: true },
@@ -57,7 +62,7 @@ const aiTutorLessonSchema = new mongoose.Schema({
   subjectArea: { type: String, default: '' },
   course: { type: String, default: '' },
   educationLevel: { type: String, default: '' },
-  questions: { type: [tutorQuestionSchema], required: true, maxlength: 5 },
+  questions: { type: [tutorQuestionSchema], default: [], maxlength: 5 },
   currentQuestionIndex: { type: Number, default: 0, min: 0, max: 4 },
   currentStepIndex: { type: Number, default: -1, min: -1 },
   attempts: { type: mongoose.Schema.Types.Mixed, default: [] },

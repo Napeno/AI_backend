@@ -2,11 +2,13 @@ const Conversation = require('../models/conversation.model');
 const User = require('../models/user.model');
 const AiTutorLesson = require('../models/ai-tutor-question.model');
 const { ensureProblemContext, getActiveQuestion } = require('../services/problem-context.service');
-const { generateLesson, makeLessonId, generateQuestion, makeQuestionId } = require('../services/ai-tutor.service');
+const { generateTutorQuestion, makeLessonId, generateQuestion, makeQuestionId } = require('../services/ai-tutor.service');
 const RankingService = require('../services/ranking.service');
 const { awardChestnuts } = require('../services/reward.service');
+const ThinkerService = require('../services/thinker.service');
 
-const LESSON_GENERATION_VERSION = 13;
+const LESSON_GENERATION_VERSION = 14;
+const lessonWorkers = new Set();
 const isUsableLesson = lesson => lesson?.generationVersion === LESSON_GENERATION_VERSION
   && Array.isArray(lesson.questions)
   && lesson.questions.length === 5
@@ -17,7 +19,12 @@ const isUsableLesson = lesson => lesson?.generationVersion === LESSON_GENERATION
     && question.options.length === 4
     && Array.isArray(question.tutorSteps)
     && question.tutorSteps.length === 2
-    && question.tutorSteps.every(step => step.explanation && step.analysis !== undefined && step.hint !== undefined));
+    && question.tutorSteps.every(step => step.explanation
+      && step.analysis !== undefined
+      && step.hint !== undefined
+      && step.easierExample?.prompt
+      && step.easierExample?.answer
+      && step.easierExample?.hint));
 const filterVisibleLessons = (lessons, activeSessions) => {
   const seen = new Set();
   return lessons.filter(lesson => {
@@ -45,6 +52,11 @@ const publicStep = (step, reveal = false) => {
     explanation: reveal ? step.explanation : '',
     analysis: reveal ? step.analysis || step.explanation : '',
     hint: reveal ? step.hint || '' : '',
+    easierExample: reveal && step.easierExample ? {
+      prompt: step.easierExample.prompt || '',
+      answer: step.easierExample.answer || '',
+      hint: step.easierExample.hint || '',
+    } : null,
     blanks: reveal && Array.isArray(step.blanks) ? step.blanks.map(blank => ({ id: blank.id, label: blank.label })) : [],
     tokens: reveal && Array.isArray(step.tokens) ? step.tokens : [],
     interaction: reveal ? publicInteraction(step.interaction) : null,
@@ -79,8 +91,73 @@ const publicLesson = (lesson, options = {}) => {
     currentQuestionIndex,
     currentStepIndex: Number.isInteger(lesson.currentStepIndex) ? lesson.currentStepIndex : -1,
     completed: lesson.completed,
+    generationStatus: lesson.generationStatus || (questions.length === 5 ? 'ready' : 'generating'),
+    generatedQuestionCount: Number.isInteger(lesson.generatedQuestionCount) ? lesson.generatedQuestionCount : questions.length,
+    totalQuestionCount: 5,
+    generationError: lesson.generationError || '',
+    waitingForQuestion: Boolean(lesson.waitingForQuestion),
     question: publicQuestion(questions[currentQuestionIndex], { unlockedStep: lesson.currentStepIndex, ...options }),
   };
+};
+
+const startLessonWorker = (lessonId, context) => {
+  if (lessonWorkers.has(lessonId)) return;
+  lessonWorkers.add(lessonId);
+  (async () => {
+    try {
+      for (;;) {
+        const lesson = await AiTutorLesson.findOne({ lessonId });
+        if (!lesson || lesson.generationStatus !== 'generating') break;
+        if (lesson.questions.length >= 5) {
+          await AiTutorLesson.updateOne({ lessonId }, { $set: { generationStatus: 'ready', generatedQuestionCount: 5 } });
+          break;
+        }
+        const index = lesson.questions.length;
+        const question = await generateTutorQuestion({
+          ...context,
+          previousQuestions: [...(context.previousQuestions || []), ...lesson.questions.map(item => item.prompt)],
+        }, index);
+        await AiTutorLesson.updateOne(
+          { lessonId, generationStatus: 'generating' },
+          { $push: { questions: question }, $set: { generatedQuestionCount: index + 1, generationError: '' } },
+        );
+        await AiTutorLesson.updateOne(
+          { lessonId, waitingForQuestion: true, currentQuestionIndex: { $lt: index } },
+          { $inc: { currentQuestionIndex: 1 }, $set: { currentStepIndex: -1, waitingForQuestion: false } },
+        );
+        if (index + 1 >= 5) await AiTutorLesson.updateOne({ lessonId }, { $set: { generationStatus: 'ready' } });
+      }
+    } catch (error) {
+      console.error('AI tutor background question generation failed:', error.message);
+      await AiTutorLesson.updateOne(
+        { lessonId, generationStatus: 'generating' },
+        { $set: { generationStatus: 'failed', generationError: error.message || 'Không thể tạo câu hỏi AI.' } },
+      );
+    } finally {
+      lessonWorkers.delete(lessonId);
+    }
+  })();
+};
+
+const advanceOrWait = lesson => {
+  if (lesson.currentQuestionIndex < lesson.questions.length - 1) {
+    lesson.currentQuestionIndex += 1;
+    lesson.currentStepIndex = -1;
+    lesson.waitingForQuestion = false;
+    return;
+  }
+  if (lesson.questions.length < 5 && lesson.generationStatus === 'generating') {
+    lesson.waitingForQuestion = true;
+    return;
+  }
+  if (lesson.questions.length < 5 && lesson.generationStatus === 'failed') {
+    lesson.waitingForQuestion = true;
+    return;
+  }
+  if (lesson.questions.length === 5) {
+    lesson.completed = true;
+    lesson.completedAt = new Date();
+  }
 };
 
 const createLesson = async (req, res) => {
@@ -122,10 +199,31 @@ const createLesson = async (req, res) => {
       if (changed) await existing.save();
       return res.json({ lesson: publicLesson(existing) });
     }
-    const generationContext = { language, questionId: selected.id, sourceText, sourceExpression, conversationContext, previousQuestions: previousLesson?.questions?.map(question => question.prompt) || [], sourceImage: conversation.problemContext.sourceImage, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel };
-    const lessonData = await generateLesson({ ...generationContext, generationSeed: `${Date.now()}-${makeLessonId()}` });
-    const lesson = await AiTutorLesson.create({ ...lessonData, generationVersion: LESSON_GENERATION_VERSION, currentStepIndex: -1, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel, lessonId: makeLessonId(), user: req.user._id, sessionId, sourceQuestionId: selected.id });
-    return res.status(201).json({ lesson: publicLesson(lesson) });
+    const generationContext = { language, questionId: selected.id, sourceText, sourceExpression, conversationContext, previousQuestions: previousLesson?.questions?.map(question => question.prompt) || [], sourceImage: conversation.problemContext.sourceImage, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel, generationSeed: `${Date.now()}-${makeLessonId()}` };
+    if (existing?.generationVersion === LESSON_GENERATION_VERSION
+      && existing.generationStatus === 'generating') {
+      startLessonWorker(existing.lessonId, existing.generationContext || generationContext);
+      return res.json({ lesson: publicLesson(existing) });
+    }
+    const lessonId = makeLessonId();
+    const lesson = await AiTutorLesson.create({
+      generationVersion: LESSON_GENERATION_VERSION,
+      generationStatus: 'generating',
+      generatedQuestionCount: 0,
+      currentStepIndex: -1,
+      subjectArea: conversation.subjectArea,
+      course: conversation.course,
+      educationLevel: conversation.educationLevel,
+      lessonId,
+      user: req.user._id,
+      sessionId,
+      sourceQuestionId: selected.id,
+      sourceText,
+      sourceImage: conversation.problemContext.sourceImage || null,
+      generationContext,
+    });
+    startLessonWorker(lessonId, generationContext);
+    return res.status(202).json({ lesson: publicLesson(lesson) });
   } catch (error) {
     console.error('AI tutor lesson create error:', error.message);
     return res.status(503).json({
@@ -138,7 +236,16 @@ const createLesson = async (req, res) => {
 const getLesson = async (req, res) => {
   const lesson = await AiTutorLesson.findOne({ lessonId: req.params.lessonId, user: req.user._id });
   if (!lesson) return res.status(404).json({ error: 'Không tìm thấy bài luyện.' });
-  if (!isUsableLesson(lesson)) return res.status(410).json({ error: 'Bài luyện cũ không còn hợp lệ. Hãy mở lại AI Tutor để tạo bài mới.' });
+  if (lesson.generationVersion !== LESSON_GENERATION_VERSION) return res.status(410).json({ error: 'Bài luyện cũ không còn hợp lệ. Hãy mở lại AI Tutor để tạo bài mới.' });
+  if (lesson.generationStatus === 'generating') startLessonWorker(lesson.lessonId, lesson.generationContext || {
+    language: 'vi',
+    questionId: lesson.sourceQuestionId,
+    sourceText: lesson.sourceText,
+    sourceImage: lesson.sourceImage,
+    subjectArea: lesson.subjectArea,
+    course: lesson.course,
+    educationLevel: lesson.educationLevel,
+  });
   return res.json({ lesson: publicLesson(lesson) });
 };
 
@@ -255,15 +362,13 @@ const completeStep = async (req, res) => {
       && String(attempt.questionId) === String(question.id)
       && attempt.correct === true);
   if (canAdvanceAfterCorrectAnswer) {
-    if (lesson.currentQuestionIndex >= lesson.questions.length - 1) {
-      lesson.completed = true; lesson.completedAt = new Date();
-    } else {
-      lesson.currentQuestionIndex += 1; lesson.currentStepIndex = -1;
-    }
+    advanceOrWait(lesson);
+    lesson.currentStepIndex = -1;
     await lesson.save();
     const activeQuestion = lesson.questions[lesson.currentQuestionIndex];
     const answered = lesson.attempts?.some(attempt => !attempt.stepId && attempt.questionId === activeQuestion?.id);
-    return res.json({ correct: true, lesson: publicLesson(lesson, { revealCorrect: answered, unlockedStep: lesson.currentStepIndex }) });
+    const challengeBadges = lesson.completed ? await ThinkerService.awardChallengeBadges(req.user._id) : [];
+    return res.json({ correct: true, challengeBadges, lesson: publicLesson(lesson, { revealCorrect: answered, unlockedStep: lesson.currentStepIndex }) });
   }
   const step = question.tutorSteps.find(item => item.id === stepId);
   if (!step || question.tutorSteps[lesson.currentStepIndex]?.id !== stepId) return res.status(400).json({ error: 'Bước hướng dẫn hiện tại không hợp lệ.' });
@@ -275,15 +380,15 @@ const completeStep = async (req, res) => {
     return res.status(400).json({ error: 'Bước hướng dẫn chưa có câu trả lời sai để xem lại.' });
   }
   if (interactionAnswer?.skip === true && !step.interaction && !step.blanks.length && !step.tokens.length) {
-    if (lesson.currentStepIndex >= question.tutorSteps.length - 1 && lesson.currentQuestionIndex >= lesson.questions.length - 1) {
-      lesson.completed = true; lesson.completedAt = new Date();
-    } else if (lesson.currentStepIndex >= question.tutorSteps.length - 1) {
-      lesson.currentQuestionIndex += 1; lesson.currentStepIndex = -1;
+    if (lesson.currentStepIndex >= question.tutorSteps.length - 1) {
+      advanceOrWait(lesson);
+      lesson.currentStepIndex = -1;
     } else {
       lesson.currentStepIndex += 1;
     }
     await lesson.save();
-    return res.json({ correct: true, lesson: publicLesson(lesson, { unlockedStep: lesson.currentStepIndex }) });
+    const challengeBadges = lesson.completed ? await ThinkerService.awardChallengeBadges(req.user._id) : [];
+    return res.json({ correct: true, challengeBadges, lesson: publicLesson(lesson, { unlockedStep: lesson.currentStepIndex }) });
   }
   const tokenValid = step.interaction ? true : step.blanks.every(blank => placements[blank.id] === blank.expectedTokenId);
   const interactionValid = step.interaction?.type === 'sort_sequence'
@@ -313,17 +418,17 @@ const completeStep = async (req, res) => {
     });
   }
   const completedFinalStep = lesson.currentStepIndex >= question.tutorSteps.length - 1;
-  if (completedFinalStep && lesson.currentQuestionIndex >= lesson.questions.length - 1) {
-    lesson.completed = true; lesson.completedAt = new Date();
-  } else if (completedFinalStep) {
-    lesson.currentQuestionIndex += 1; lesson.currentStepIndex = -1;
+  if (completedFinalStep) {
+    advanceOrWait(lesson);
+    lesson.currentStepIndex = -1;
   } else {
     lesson.currentStepIndex += 1;
   }
   await lesson.save();
   const activeQuestion = lesson.questions[lesson.currentQuestionIndex];
   const answered = lesson.attempts?.some(attempt => !attempt.stepId && attempt.questionId === activeQuestion?.id);
-  return res.json({ correct: true, lesson: publicLesson(lesson, { revealCorrect: answered, unlockedStep: lesson.currentStepIndex }) });
+  const challengeBadges = lesson.completed ? await ThinkerService.awardChallengeBadges(req.user._id) : [];
+  return res.json({ correct: true, challengeBadges, lesson: publicLesson(lesson, { revealCorrect: answered, unlockedStep: lesson.currentStepIndex }) });
 };
 
 const analytics = async (req, res) => {

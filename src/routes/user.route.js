@@ -75,8 +75,10 @@ router.get('/journal/weekly', async (req, res) => {
   const now = new Date();
   const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
   const conversations = await Conversation.find({ user: req.user._id, 'dependencyEvents.at': { $gte: twoWeeksAgo } })
-    .select('dependencyEvents').lean();
-  return res.json(ThinkerService.buildWeeklyJournal(conversations, now));
+    .select('dependencyEvents educationLevel subjectArea course').lean();
+  const journal = ThinkerService.buildWeeklyJournal(conversations, now);
+  const challenges = await ThinkerService.getWeeklyChallenges({ userId: req.user._id, journal, conversations, educationLevel: conversations[0]?.educationLevel || 'middle' });
+  return res.json({ ...journal, ...challenges });
 });
 
 router.get('/risk-trend', async (req, res) => {

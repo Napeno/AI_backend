@@ -4,6 +4,7 @@ const InterventionService = require('../../services/intervention.service');
 const InterventionQuizService = require('../../services/intervention-quiz.service');
 const { getMessages } = require('./utils');
 const { ensureProblemContext, setActiveQuestion, toPublicProblemContext } = require('../../services/problem-context.service');
+const { getConversationTitle } = require('../../services/practice.service');
 
 const getConversations = async (req, res) => {
   try {
@@ -13,17 +14,9 @@ const getConversations = async (req, res) => {
       .lean();
 
     const conversationList = conversations.map(conv => {
-      const firstUserMessage = conv.history.find(msg => 
-        msg.role === 'user' && 
-        !msg.parts[0].text.includes('Bạn là một người thầy') &&
-        !msg.parts[0].text.includes('You are a friendly friend')
-      );
-      
       return {
         sessionId: conv.sessionId,
-        title: firstUserMessage 
-          ? firstUserMessage.parts[0].text.substring(0, 50) + (firstUserMessage.parts[0].text.length > 50 ? '...' : '')
-          : 'New Chat',
+        title: getConversationTitle(conv),
         lastUpdate: conv.updatedAt,
         messageCount: conv.history.filter(msg => 
           msg.role === 'user' && 
