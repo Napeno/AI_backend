@@ -97,7 +97,9 @@ const recommendationFor = (score, metrics) => {
 const buildStudent = (user, conversations, filters = {}) => {
   const real = realAnalytics(conversations, filters);
   const demo = demoAnalytics(user.analyticsDemo, filters);
-  const selected = real.tracked ? real : demo?.tracked ? demo : real;
+  const selected = user.rosterStatus === 'current-account' && demo?.tracked
+    ? demo
+    : real.tracked ? real : demo?.tracked ? demo : real;
   const currentScore = selected.current?.riskScore ?? BASELINE_RISK_SCORE;
   const metrics = countMetrics(selected.events);
   const latestAssessment = [...(user.dependencyAssessments || [])]
@@ -108,6 +110,16 @@ const buildStudent = (user, conversations, filters = {}) => {
     id: String(user._id),
     name: user.name || user.username,
     username: user.username || '',
+    classProfile: {
+      className: user.className || '',
+      rosterNumber: user.rosterNumber || null,
+      dateOfBirth: user.dateOfBirth || '',
+      gender: user.gender || '',
+      ethnicity: user.ethnicity || '',
+      previousClass: user.previousClass || '',
+      rosterStatus: user.rosterStatus || '',
+      note: user.note || '',
+    },
     baselineScore: BASELINE_RISK_SCORE,
     behavioralRisk: currentScore,
     riskLevel: getRiskLevel(currentScore),

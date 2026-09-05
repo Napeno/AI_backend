@@ -21,7 +21,7 @@ const getFilters = (query) => ({
 const loadAnalytics = async (filters) => {
   // ponytail: in-memory aggregation is sufficient for the current school-sized dataset; move to Mongo aggregation if it grows materially.
   const [users, conversations] = await Promise.all([
-    User.find({ role: { $ne: 'admin' } }).select('name username dependencyAssessments createdAt +analyticsDemo').lean(),
+    User.find({ role: { $ne: 'admin' } }).select('name username className rosterNumber dateOfBirth gender ethnicity previousClass rosterStatus note dependencyAssessments createdAt +analyticsDemo').lean(),
     Conversation.find({}).select('user educationLevel subjectArea interventionMetrics dependencyEvents updatedAt').lean(),
   ]);
   return { users, conversations, analytics: buildAnalytics(users, conversations, filters) };
@@ -41,7 +41,7 @@ const getStudent = async (req, res) => {
   try {
     const filters = getFilters(req.query);
     const user = await User.findOne({ _id: req.params.id, role: { $ne: 'admin' } })
-      .select('name username dependencyAssessments +teacherNotes +analyticsDemo').lean();
+      .select('name username className rosterNumber dateOfBirth gender ethnicity previousClass rosterStatus note dependencyAssessments +teacherNotes +analyticsDemo').lean();
     if (!user) return res.status(404).json({ error: 'Student not found' });
     const conversations = await Conversation.find({ user: user._id })
       .select('user educationLevel subjectArea interventionMetrics dependencyEvents updatedAt').lean();
