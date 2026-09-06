@@ -21,7 +21,7 @@ const getFilters = (query) => ({
 const loadAnalytics = async (filters) => {
   // ponytail: in-memory aggregation is sufficient for the current school-sized dataset; move to Mongo aggregation if it grows materially.
   const [users, conversations] = await Promise.all([
-    User.find({ role: { $ne: 'admin' } }).select('name username className rosterNumber dateOfBirth gender ethnicity previousClass rosterStatus note dependencyAssessments createdAt +analyticsDemo').lean(),
+    User.find({ role: { $ne: 'admin' }, rosterStatus: { $in: ['current', 'current-account'] } }).select('name username className rosterNumber dateOfBirth gender ethnicity previousClass rosterStatus note dependencyAssessments createdAt +analyticsDemo').lean(),
     Conversation.find({}).select('user educationLevel subjectArea interventionMetrics dependencyEvents updatedAt').lean(),
   ]);
   return { users, conversations, analytics: buildAnalytics(users, conversations, filters) };
@@ -40,7 +40,7 @@ const getAnalytics = async (req, res) => {
 const getStudent = async (req, res) => {
   try {
     const filters = getFilters(req.query);
-    const user = await User.findOne({ _id: req.params.id, role: { $ne: 'admin' } })
+    const user = await User.findOne({ _id: req.params.id, role: { $ne: 'admin' }, rosterStatus: { $in: ['current', 'current-account'] } })
       .select('name username className rosterNumber dateOfBirth gender ethnicity previousClass rosterStatus note dependencyAssessments +teacherNotes +analyticsDemo').lean();
     if (!user) return res.status(404).json({ error: 'Student not found' });
     const conversations = await Conversation.find({ user: user._id })
@@ -63,7 +63,7 @@ const addNote = async (req, res) => {
   const body = String(req.body?.body || '').trim();
   if (!body || body.length > 2000) return res.status(400).json({ error: 'Note must be between 1 and 2000 characters' });
   try {
-    const student = await User.findOne({ _id: req.params.id, role: { $ne: 'admin' } }).select('_id').lean();
+    const student = await User.findOne({ _id: req.params.id, role: { $ne: 'admin' }, rosterStatus: { $in: ['current', 'current-account'] } }).select('_id').lean();
     if (!student) return res.status(404).json({ error: 'Student not found' });
     const note = { body, author: req.user._id, createdAt: new Date() };
     await User.updateOne({ _id: student._id }, { $push: { teacherNotes: note } });

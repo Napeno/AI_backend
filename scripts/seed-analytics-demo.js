@@ -8,7 +8,7 @@ const reset = process.argv.includes('--reset');
 
 const seedAnalyticsDemo = async () => {
   await connectDB();
-  const students = await User.find({ role: { $ne: 'admin' } }).select('_id +analyticsDemo');
+  const students = await User.find({ role: { $ne: 'admin' }, rosterStatus: { $in: ['current', 'current-account'] } }).select('_id rosterStatus +analyticsDemo');
   let seeded = 0;
   for (const student of students) {
     if (!reset && student.analyticsDemo?.version === DEMO_VERSION) continue;
@@ -16,7 +16,7 @@ const seedAnalyticsDemo = async () => {
     // Update this dashboard-only field directly so their old records remain usable.
     const result = await User.updateOne(
       { _id: student._id },
-      { $set: { analyticsDemo: buildAnalyticsDemo(student._id, new Date()) } },
+      { $set: { analyticsDemo: buildAnalyticsDemo(student._id, new Date(), { frequent: student.rosterStatus === 'current-account' }) } },
     );
     seeded += result.modifiedCount;
   }

@@ -101,6 +101,7 @@ const buildStudent = (user, conversations, filters = {}) => {
     ? demo
     : real.tracked ? real : demo?.tracked ? demo : real;
   const currentScore = selected.current?.riskScore ?? BASELINE_RISK_SCORE;
+  const baselineScore = selected.source === 'demo' ? (user.analyticsDemo?.baselineScore ?? BASELINE_RISK_SCORE) : BASELINE_RISK_SCORE;
   const metrics = countMetrics(selected.events);
   const latestAssessment = [...(user.dependencyAssessments || [])]
     .filter(assessment => inRange(assessment.submittedAt, toDate(filters.from), toDate(filters.to, true)))
@@ -120,10 +121,10 @@ const buildStudent = (user, conversations, filters = {}) => {
       rosterStatus: user.rosterStatus || '',
       note: user.note || '',
     },
-    baselineScore: BASELINE_RISK_SCORE,
+    baselineScore,
     behavioralRisk: currentScore,
     riskLevel: getRiskLevel(currentScore),
-    improvement: Math.max(0, BASELINE_RISK_SCORE - currentScore),
+    improvement: Math.max(0, baselineScore - currentScore),
     source: selected.source === 'demo' ? 'demo' : selected.tracked ? 'real' : 'baseline',
     educationLevel: selected.current?.educationLevel || user.analyticsDemo?.educationLevel || 'unclassified',
     subjectArea: selected.current?.subjectArea || user.analyticsDemo?.subjectArea || 'unclassified',

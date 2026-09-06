@@ -62,10 +62,12 @@ test('uses seeded dashboard demo data only when real event tracking is absent', 
   assert.equal(realAnalytics.students[0].behavioralRisk, 24);
 });
 
-test('builds deterministic demo data with a valid v2 level', () => {
+test('builds varied deterministic demo data with an improving trend', () => {
   const demos = Array.from({ length: 1000 }, (_, index) => buildAnalyticsDemo(`student-${index}`, new Date('2026-07-20T00:00:00.000Z')));
   assert.deepEqual(buildAnalyticsDemo('student-10', new Date('2026-07-20T00:00:00.000Z')), buildAnalyticsDemo('student-10', new Date('2026-07-20T00:00:00.000Z')));
   assert.ok(demos.every(demo => getRiskLevel(demo.currentScore) === demo.riskLevel));
+  assert.ok(demos.every(demo => demo.currentScore <= demo.baselineScore));
+  assert.ok(new Set(demos.map(demo => demo.currentScore)).size > 1);
 });
 
 test('requires an admin role and validates all quiz answers', () => {
