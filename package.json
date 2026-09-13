@@ -8,7 +8,6 @@
     "dev": "nodemon src/index.js",
     "seed:admin": "node scripts/seed-admin.js",
     "recalculate:risk": "node scripts/recalculate-risk.js",
-    "seed:analytics-demo": "node scripts/seed-analytics-demo.js",
     "migrate:chestnuts": "node scripts/migrate-chestnuts.js",
     "reset:chestnuts": "node scripts/reset-chestnuts.js"
   },

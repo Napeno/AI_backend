@@ -70,21 +70,9 @@ const realAnalytics = (conversations, filters) => {
     tracked: events.length > 0,
     events,
     current: latest(states),
+    baselineScore: events.length ? Math.max(...events.map(event => Number(event.riskScore) || 0)) : BASELINE_RISK_SCORE,
     conversations: relevant.length,
   };
-};
-
-const demoAnalytics = (demo, filters) => {
-  if (!demo || !matchesContext(demo, filters)) return null;
-  const from = toDate(filters.from);
-  const to = toDate(filters.to, true);
-  const events = (demo.events || []).filter(event => inRange(event.at, from, to));
-  const current = latest(events) || (!from && !to ? {
-    at: demo.seededAt,
-    riskScore: demo.currentScore,
-    riskLevel: demo.riskLevel,
-  } : null);
-  return { source: 'demo', tracked: !!current, events, current, conversations: 0 };
 };
 
 const recommendationFor = (score, metrics) => {
@@ -96,12 +84,9 @@ const recommendationFor = (score, metrics) => {
 
 const buildStudent = (user, conversations, filters = {}) => {
   const real = realAnalytics(conversations, filters);
-  const demo = demoAnalytics(user.analyticsDemo, filters);
-  const selected = user.rosterStatus === 'current-account' && demo?.tracked
-    ? demo
-    : real.tracked ? real : demo?.tracked ? demo : real;
+  const selected = real;
   const currentScore = selected.current?.riskScore ?? BASELINE_RISK_SCORE;
-  const baselineScore = selected.source === 'demo' ? (user.analyticsDemo?.baselineScore ?? BASELINE_RISK_SCORE) : BASELINE_RISK_SCORE;
+  const baselineScore = selected.baselineScore ?? BASELINE_RISK_SCORE;
   const metrics = countMetrics(selected.events);
   const latestAssessment = [...(user.dependencyAssessments || [])]
     .filter(assessment => inRange(assessment.submittedAt, toDate(filters.from), toDate(filters.to, true)))
@@ -125,9 +110,9 @@ const buildStudent = (user, conversations, filters = {}) => {
     behavioralRisk: currentScore,
     riskLevel: getRiskLevel(currentScore),
     improvement: Math.max(0, baselineScore - currentScore),
-    source: selected.source === 'demo' ? 'demo' : selected.tracked ? 'real' : 'baseline',
-    educationLevel: selected.current?.educationLevel || user.analyticsDemo?.educationLevel || 'unclassified',
-    subjectArea: selected.current?.subjectArea || user.analyticsDemo?.subjectArea || 'unclassified',
+    source: selected.tracked ? 'real' : 'baseline',
+    educationLevel: selected.current?.educationLevel || 'unclassified',
+    subjectArea: selected.current?.subjectArea || 'unclassified',
     recommendation: recommendationFor(currentScore, metrics),
     quiz: latestAssessment ? {
       score: latestAssessment.score,
@@ -143,7 +128,7 @@ const buildStudent = (user, conversations, filters = {}) => {
 
 const bucketFor = (event, groupBy) => {
   const date = new Date(event.at);
-  if (groupBy === 'subject') return event.subjectArea || 'mô phỏng';
+  if (groupBy === 'subject') return event.subjectArea || 'unclassified';
   if (groupBy === 'riskLevel') return event.riskLevel || 'low';
   if (groupBy === 'month') return date.toISOString().slice(0, 7);
   if (groupBy === 'week') {

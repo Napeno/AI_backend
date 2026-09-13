@@ -1,7 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { buildAnalytics } = require('../src/services/admin-analytics.service');
-const { buildAnalyticsDemo } = require('../src/services/analytics-demo.service');
 const { getRiskLevel } = require('../src/services/intervention.service');
 const requireAdmin = require('../src/middleware/require-admin');
 const { hasValidAnswers } = require('../src/controllers/quiz.controller');
@@ -21,8 +20,8 @@ test('builds filtered student analytics without exposing conversations', () => {
 
   assert.equal(analytics.summary.totalStudents, 1);
   assert.equal(analytics.students[0].behavioralRisk, 35);
-  assert.equal(analytics.students[0].baselineScore, 0);
-  assert.equal(analytics.students[0].improvement, 0);
+  assert.equal(analytics.students[0].baselineScore, 40);
+  assert.equal(analytics.students[0].improvement, 5);
   assert.equal(analytics.students[0].source, 'real');
   assert.equal(analytics.students[0].rapidHintRequests, 1);
   assert.equal(analytics.students[0].quiz.score, 32);
@@ -45,29 +44,11 @@ test('sorts the paginated table by the selected analytics column', () => {
   assert.deepEqual(analytics.students.map(student => student.name), ['Bình', 'An']);
 });
 
-test('uses seeded dashboard demo data only when real event tracking is absent', () => {
-  const demo = buildAnalyticsDemo('student-2', new Date('2026-07-20T00:00:00.000Z'));
-  const users = [{ _id: 'student-2', name: 'Mai', username: 'mai', analyticsDemo: demo }];
-  const analytics = buildAnalytics(users, [], {});
-
-  assert.equal(analytics.students[0].source, 'demo');
-  assert.equal(analytics.students[0].behavioralRisk, demo.currentScore);
-  assert.equal(analytics.summary.demoStudents, 1);
-
-  const realAnalytics = buildAnalytics(users, [{
-    user: 'student-2', educationLevel: demo.educationLevel, subjectArea: demo.subjectArea,
-    dependencyEvents: [{ type: 'answer_checked', at: '2026-07-19T00:00:00.000Z', riskScore: 24, riskLevel: 'low', rulesetVersion: 'v2', details: { isMeaningfulAttempt: true, isCorrect: true } }],
-  }], {});
-  assert.equal(realAnalytics.students[0].source, 'real');
-  assert.equal(realAnalytics.students[0].behavioralRisk, 24);
-});
-
-test('builds varied deterministic demo data with an improving trend', () => {
-  const demos = Array.from({ length: 1000 }, (_, index) => buildAnalyticsDemo(`student-${index}`, new Date('2026-07-20T00:00:00.000Z')));
-  assert.deepEqual(buildAnalyticsDemo('student-10', new Date('2026-07-20T00:00:00.000Z')), buildAnalyticsDemo('student-10', new Date('2026-07-20T00:00:00.000Z')));
-  assert.ok(demos.every(demo => getRiskLevel(demo.currentScore) === demo.riskLevel));
-  assert.ok(demos.every(demo => demo.currentScore <= demo.baselineScore));
-  assert.ok(new Set(demos.map(demo => demo.currentScore)).size > 1);
+test('uses baseline analytics when real event tracking is absent', () => {
+  const analytics = buildAnalytics([{ _id: 'student-2', name: 'Mai', username: 'mai' }], [], {});
+  assert.equal(analytics.students[0].source, 'baseline');
+  assert.equal(analytics.students[0].behavioralRisk, 0);
+  assert.equal(analytics.summary.demoStudents, 0);
 });
 
 test('requires an admin role and validates all quiz answers', () => {
