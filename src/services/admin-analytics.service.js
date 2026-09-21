@@ -192,32 +192,6 @@ const buildToday = (students, now = new Date()) => {
   };
 };
 
-const HEURISTIC_LEVELS = [
-  { key: 'high', label: 'Cao', color: '#ef4444', match: 'high' },
-  { key: 'medium', label: 'Trung bình', color: '#f59e0b', match: 'watch' },
-  { key: 'low', label: 'Thấp', color: '#10b981', match: 'low' },
-];
-
-const buildHeuristicClassification = (students) => {
-  const countFor = (scoreKey) => HEURISTIC_LEVELS.map(level => ({
-    ...level,
-    value: students.filter(student => getRiskLevel(student[scoreKey]) === level.match).length,
-  }));
-  const before = countFor('baselineScore');
-  const after = countFor('behavioralRisk');
-  return {
-    n: students.length,
-    title: `Phân loại mức độ đi tắt nhận thức trước và sau can thiệp (n = ${students.length})`,
-    levels: HEURISTIC_LEVELS.map((level, index) => ({
-      key: level.key,
-      label: level.label,
-      color: level.color,
-      before: before[index].value,
-      after: after[index].value,
-    })),
-  };
-};
-
 const buildBreakdowns = (students) => ({
   behaviors: {
     items: [
@@ -232,7 +206,6 @@ const buildBreakdowns = (students) => ({
     { label: '0', min: 0, max: 0 }, { label: '1–17', min: 1, max: 17 }, { label: '18–35', min: 18, max: 35 },
     { label: '36+', min: 36, max: Infinity },
   ].map(bucket => ({ label: bucket.label, value: students.filter(student => student.improvement >= bucket.min && student.improvement <= bucket.max).length })),
-  heuristicClassification: buildHeuristicClassification(students),
 });
 
 const compareStudents = (sortBy, sortOrder) => (left, right) => {

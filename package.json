@@ -7,6 +7,7 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "seed:admin": "node scripts/seed-admin.js",
+    "seed:heuristic-research": "node scripts/seed-heuristic-research.js",
     "recalculate:risk": "node scripts/recalculate-risk.js",
     "migrate:chestnuts": "node scripts/migrate-chestnuts.js",
     "reset:chestnuts": "node scripts/reset-chestnuts.js"
