@@ -29,6 +29,11 @@ test('builds filtered student analytics without exposing conversations', () => {
   assert.deepEqual(analytics.chart.points, [{ label: '2026-07-20', value: 38 }]);
   assert.equal(analytics.breakdowns.behaviors.items.find(item => item.key === 'hintRequests').value, 1);
   assert.deepEqual(analytics.breakdowns.riskBySubject, [{ label: 'mathematics', low: 0, watch: 1, high: 0 }]);
+  assert.deepEqual(analytics.breakdowns.heuristicClassification.levels, [
+    { key: 'high', label: 'Cao', color: '#ef4444', before: 0, after: 0 },
+    { key: 'medium', label: 'Trung bình', color: '#f59e0b', before: 1, after: 1 },
+    { key: 'low', label: 'Thấp', color: '#10b981', before: 0, after: 0 },
+  ]);
 });
 
 test('sorts the paginated table by the selected analytics column', () => {
