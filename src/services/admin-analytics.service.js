@@ -164,6 +164,72 @@ const buildChart = (students, metric = 'risk', groupBy = 'day') => {
     .sort((a, b) => a.label.localeCompare(b.label));
 };
 
+/**
+ * Per-bucket class snapshot: each student's latest score in that day/week/month,
+ * carrying forward the last known score so history stays readable.
+ */
+const buildStatusTimeline = (students, groupBy = 'day') => {
+  const state = new Map();
+  students.forEach((student) => {
+    const events = [...(student._events || [])].sort((a, b) => new Date(a.at) - new Date(b.at));
+    if (!events.length) return;
+    state.set(student.id, {
+      events,
+      cursor: 0,
+      score: null,
+      peak: null,
+      first: null,
+    });
+  });
+
+  const labels = [...new Set(
+    students.flatMap((student) => (student._events || []).map((event) => bucketFor(event, groupBy))),
+  )].sort((a, b) => a.localeCompare(b));
+
+  return labels.map((label) => {
+    let high = 0;
+    let watch = 0;
+    let low = 0;
+    let active = 0;
+    let improved = 0;
+    let scoreTotal = 0;
+    let scored = 0;
+
+    state.forEach((item) => {
+      let hadEvent = false;
+      while (item.cursor < item.events.length && bucketFor(item.events[item.cursor], groupBy) === label) {
+        const event = item.events[item.cursor];
+        item.score = Number(event.riskScore) || 0;
+        item.peak = item.peak == null ? item.score : Math.max(item.peak, item.score);
+        item.first = item.first == null ? item.score : item.first;
+        item.cursor += 1;
+        hadEvent = true;
+      }
+      if (item.score == null) return;
+      if (hadEvent) active += 1;
+      const level = getRiskLevel(item.score);
+      if (level === 'high') high += 1;
+      else if (level === 'watch') watch += 1;
+      else low += 1;
+      if (item.peak != null && item.peak - item.score >= 5) improved += 1;
+      scoreTotal += item.score;
+      scored += 1;
+    });
+
+    return {
+      label,
+      high,
+      watch,
+      low,
+      active,
+      improved,
+      total: high + watch + low,
+      averageRisk: scored ? Math.round(scoreTotal / scored) : 0,
+      value: scored ? Math.round(scoreTotal / scored) : 0,
+    };
+  });
+};
+
 const countByRisk = (students, key) => Object.values(students.reduce((rows, student) => {
   const label = student[key] || 'unclassified';
   rows[label] ||= { label, low: 0, watch: 0, high: 0 };
@@ -203,8 +269,10 @@ const buildBreakdowns = (students) => ({
   riskBySubject: countByRisk(students, 'subjectArea'),
   riskByEducationLevel: countByRisk(students, 'educationLevel'),
   improvement: [
-    { label: '0', min: 0, max: 0 }, { label: '1–17', min: 1, max: 17 }, { label: '18–35', min: 18, max: 35 },
-    { label: '36+', min: 36, max: Infinity },
+    { label: '0', min: 0, max: 0 },
+    { label: '1–4', min: 1, max: 4 },
+    { label: '5–14', min: 5, max: 14 },
+    { label: '15+', min: 15, max: Infinity },
   ].map(bucket => ({ label: bucket.label, value: students.filter(student => student.improvement >= bucket.min && student.improvement <= bucket.max).length })),
 });
 
@@ -229,13 +297,14 @@ const buildAnalytics = (users, conversations, filters = {}) => {
     .filter(student => !query || `${student.name} ${student.username}`.toLowerCase().includes(query))
     .filter(student => !filters.riskLevel || student.riskLevel === filters.riskLevel)
     .sort(compareStudents(filters.sortBy || 'behavioralRisk', filters.sortOrder || 'desc'));
+  const IMPROVED_DELTA = 5;
   const distribution = RISK_LEVELS.reduce((result, level) => ({ ...result, [level]: students.filter(student => student.riskLevel === level).length }), {});
   const quizScores = students.map(student => student.quiz?.score).filter(Number.isFinite);
   const summary = {
     totalStudents: students.length,
     requiresIntervention: distribution.high,
     watchingStudents: distribution.watch,
-    improvedStudents: students.filter(student => student.improvement >= 15).length,
+    improvedStudents: students.filter(student => student.improvement >= IMPROVED_DELTA).length,
     averageBehavioralRisk: average(students.map(student => student.behavioralRisk)),
     averageQuizScore: quizScores.length ? Math.round(quizScores.reduce((sum, score) => sum + score, 0) / quizScores.length * 10) / 10 : null,
     demoStudents: students.filter(student => student.source === 'demo').length,
@@ -247,7 +316,12 @@ const buildAnalytics = (users, conversations, filters = {}) => {
 
   return {
     summary,
-    chart: { metric: filters.metric || 'risk', groupBy: filters.groupBy || 'day', points: buildChart(students, filters.metric || 'risk', filters.groupBy || 'day') },
+    chart: {
+      metric: filters.metric || 'risk',
+      groupBy: filters.groupBy || 'day',
+      points: buildChart(students, filters.metric || 'risk', filters.groupBy || 'day'),
+      statusPoints: buildStatusTimeline(students, filters.groupBy || 'day'),
+    },
     breakdowns: buildBreakdowns(students),
     students: students.slice((page - 1) * limit, page * limit).map(withoutEvents),
     exportStudents: students.map(withoutEvents),

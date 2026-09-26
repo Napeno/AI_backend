@@ -1,9 +1,10 @@
 /**
- * Seed class 8.2 analytics with a smooth April → now decline, messy day spread,
- * and Aug 22–Sep 22 before/after levels matching the research table (n = 47):
- *
- * Before: Cao 6 / Trung bình 22 / Thấp 19
- * After:  Cao 0 / Trung bình 15 / Thấp 32
+ * Seed daily class snapshots from April → now with:
+ * - continuous day-to-day fluctuation (ups & downs)
+ * - overall improving trend
+ * - research window 22/08 → 22/09 landing on:
+ *     before: Cao 6 / TB 22 / Thấp 19
+ *     after:  Cao 0 / TB 15 / Thấp 32
  *
  * Usage:
  *   node scripts/seed-heuristic-research.js
@@ -16,21 +17,20 @@ const { getRiskLevel } = require('../src/services/intervention.service');
 const APRIL = new Date('2026-04-01T00:00:00.000Z');
 const RESEARCH_FROM = new Date('2026-08-22T00:00:00.000Z');
 const RESEARCH_TO = new Date('2026-09-22T23:59:59.999Z');
-const NOW = RESEARCH_TO;
-const SESSION_PREFIX = 'research-heuristic-timeline-2026';
+const endOfTodayUtc = () => {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+};
+const NOW = endOfTodayUtc() < RESEARCH_TO ? RESEARCH_TO : endOfTodayUtc();
+const SESSION_PREFIX = 'research-heuristic-daily-2026';
 const KEEP_USERNAMES = ['sonha2003', 'kiều oanh', 'kieuoanh'];
 const RESTORE_KEPT = process.argv.includes('--restore-kept');
 
-const SCORE = {
-  high: 78,
-  watch: 48,
-  low: 20,
-};
-
+const SCORE = { high: 78, watch: 48, low: 20 };
 const EVENT_TYPES = [
   'hint_requested',
-  'full_answer_requested',
   'answer_checked',
+  'full_answer_requested',
   'gate_completed',
   'hint_requested',
   'answer_checked',
@@ -41,12 +41,12 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const lerp = (from, to, t) => from + (to - from) * t;
 const levelOf = (score) => getRiskLevel(score);
 const daysBetween = (from, to) => Math.floor((to - from) / dayMs);
+const easeSmooth = (t) => t * t * (3 - 2 * t);
 
-const atDay = (start, dayOffset, hour = 9, minute = 0) => {
-  const date = new Date(start.getTime() + dayOffset * dayMs);
-  date.setUTCHours(hour, minute, (dayOffset * 7) % 50, 0);
+const atDay = (dayOffset, hour = 9, minute = 0) => {
+  const date = new Date(APRIL.getTime() + dayOffset * dayMs);
+  date.setUTCHours(hour, minute, (dayOffset * 11) % 50, 0);
   if (date > NOW) date.setTime(NOW.getTime() - 30 * 60 * 1000);
-  if (date < APRIL) date.setTime(APRIL.getTime() + 60 * 60 * 1000);
   return date;
 };
 
@@ -60,13 +60,6 @@ const event = (type, at, riskScore, details = {}) => ({
   details,
 });
 
-/**
- * Transitions (n = 47):
- * - 6 high → low
- * - 7 watch → low
- * - 15 watch → watch
- * - 19 low → low
- */
 const planTransitions = (students) => {
   if (students.length !== 47) {
     throw new Error(`Expected 47 roster students, found ${students.length}`);
@@ -80,128 +73,125 @@ const planTransitions = (students) => {
   });
 };
 
+const scoreInBand = (level, index, phase) => {
+  const wobble = ((index * 3 + phase * 5) % 5) - 2;
+  if (level === 'high') return clamp(SCORE.high + wobble, 66, 92);
+  if (level === 'watch') return clamp(SCORE.watch + wobble, 34, 58);
+  return clamp(SCORE.low + wobble, 8, 28);
+};
+
+const bandCeiling = (level) => (level === 'high' ? 95 : level === 'watch' ? 60 : 30);
+const bandFloor = (level) => (level === 'high' ? 61 : level === 'watch' ? 31 : 0);
+
 const aprilStartFor = (before, index) => {
   if (before === 'high') return 90 - (index % 4);
-  if (before === 'watch') return 72 - (index % 5);
-  return 58 - (index % 6);
+  if (before === 'watch') return 78 - (index % 5);
+  return 62 - (index % 6);
 };
 
-const targetScore = (level, index, phase) => {
-  const base = SCORE[level];
-  const wobble = ((index * 3 + phase * 5) % 5) - 2;
-  if (level === 'high') return clamp(base + wobble, 61, 95);
-  if (level === 'watch') return clamp(base + wobble, 31, 60);
-  return clamp(base + wobble, 5, 30);
+/** Deterministic noise in [-1, 1]. */
+const noise11 = (index, day) => {
+  const x = Math.sin(index * 12.9898 + day * 78.233) * 43758.5453;
+  return (x - Math.floor(x)) * 2 - 1;
 };
 
-const progressAt = (at) => (at - APRIL.getTime()) / (NOW.getTime() - APRIL.getTime());
-const researchProgressAt = (at) =>
-  (at - RESEARCH_FROM.getTime()) / (RESEARCH_TO.getTime() - RESEARCH_FROM.getTime());
-
+/**
+ * Trend + ups/downs. Anchors:
+ * - Aug 22 → exact "before" band
+ * - Sep 22 → exact "after" band
+ * Research-window scores stay within before/after bands so baseline/latest classification matches the table.
+ */
 const scoreForMoment = (at, before, after, index) => {
-  const t = clamp(progressAt(at), 0, 1);
+  const day = daysBetween(APRIL, at);
+  const researchStartDay = daysBetween(APRIL, RESEARCH_FROM);
+  const researchEndDay = daysBetween(APRIL, RESEARCH_TO);
+  const beforeScore = scoreInBand(before, index, 1);
+  const afterScore = scoreInBand(after, index, 2);
   const aprilStart = aprilStartFor(before, index);
-  const beforeScore = targetScore(before, index, 1);
-  const afterScore = targetScore(after, index, 2);
 
-  if (at < RESEARCH_FROM) {
-    const local = t / progressAt(RESEARCH_FROM);
-    // Decline from April peak toward the research "before" level.
-    return Math.round(lerp(aprilStart, beforeScore, local ** 0.85));
+  if (day === researchStartDay) return beforeScore;
+  if (day === researchEndDay) return afterScore;
+
+  let trend;
+  if (day < researchStartDay) {
+    const local = clamp(day / Math.max(1, researchStartDay), 0, 1);
+    trend = lerp(aprilStart, beforeScore, easeSmooth(local ** 0.85));
+  } else if (day < researchEndDay) {
+    const stagger = (index % 12) / 14;
+    const span = Math.max(1, researchEndDay - researchStartDay);
+    const raw = (day - researchStartDay) / span;
+    const u = clamp((raw - stagger * 0.55) / (1 - stagger * 0.35), 0, 1);
+    trend = lerp(beforeScore, afterScore, easeSmooth(u));
+  } else {
+    const postSpan = Math.max(1, daysBetween(RESEARCH_TO, NOW));
+    const post = clamp((day - researchEndDay) / postSpan, 0, 1);
+    trend = lerp(afterScore, Math.max(6, afterScore - 5), easeSmooth(post));
   }
 
-  const u = clamp(researchProgressAt(at), 0, 1);
-  // Inside research window: move from before → after.
-  return Math.round(lerp(beforeScore, afterScore, u ** 1.1));
+  const wave =
+    Math.sin(day / 2.7 + index * 0.63) * 9 +
+    Math.sin(day / 6.1 + index * 1.1) * 5 +
+    Math.cos(day / 11 + index * 0.4) * 3;
+  const jitter = noise11(index, day) * 7;
+  const pulse = ((day * 5 + index * 9) % 13 === 0) ? 10 : ((day * 5 + index * 9) % 13 === 7) ? -8 : 0;
+  let score = Math.round(trend + wave + jitter + pulse);
+
+  // Keep research-window max/min inside the student's before→after corridor
+  // so table before/after counts stay exact, while daily values still wobble.
+  if (day >= researchStartDay && day <= researchEndDay) {
+    const upper = Math.max(bandCeiling(before), bandCeiling(after));
+    const lower = Math.min(bandFloor(before), bandFloor(after));
+    score = clamp(score, lower, upper);
+  } else {
+    score = clamp(score, 0, 100);
+  }
+
+  return score;
 };
 
 const detailsFor = (type, score, index, seq) => {
-  if (type === 'hint_requested') {
-    return { isRapid: score > 60 && seq % 3 === 0 };
-  }
+  if (type === 'hint_requested') return { isRapid: score > 60 && seq % 4 === 0 };
   if (type === 'answer_checked') {
     return {
       isMeaningfulAttempt: score <= 55 || seq % 2 === 1,
-      isCorrect: score <= 35 && seq % 2 === 0,
+      isCorrect: score <= 35 && seq % 3 !== 0,
     };
   }
   return {};
 };
 
-const pickDays = (count, index) => {
+const buildEvents = (before, after, index) => {
   const totalDays = daysBetween(APRIL, NOW);
-  const days = new Set();
+  const events = [];
 
-  // Anchor points so charts have coverage in every month and research window.
-  const anchors = [
-    2 + (index % 5),
-    20 + (index % 7),
-    45 + (index % 9),
-    70 + (index % 6),
-    95 + (index % 8),
-    daysBetween(APRIL, RESEARCH_FROM) + 1 + (index % 4),
-    daysBetween(APRIL, RESEARCH_FROM) + 10 + (index % 5),
-    daysBetween(APRIL, RESEARCH_FROM) + 20 + (index % 6),
-    totalDays - 3 - (index % 4),
-    totalDays - 1,
-  ];
-  anchors.forEach((day) => days.add(clamp(day, 0, totalDays)));
-
-  for (let i = 0; i < count; i += 1) {
-    const even = Math.round((i / Math.max(count - 1, 1)) * totalDays);
-    const messy = ((index * 19 + i * 11) % 9) - 4;
-    days.add(clamp(even + messy, 0, totalDays));
+  for (let day = 0; day <= totalDays; day += 1) {
+    const hour = 7 + ((index + day) % 10);
+    const minute = (index * 7 + day * 3) % 55;
+    const at = atDay(day, hour, minute);
+    const score = scoreForMoment(at, before, after, index);
+    const type = EVENT_TYPES[(index + day) % EVENT_TYPES.length];
+    events.push(event(type, at, score, detailsFor(type, score, index, day)));
   }
 
-  return [...days].sort((a, b) => a - b);
-};
-
-const buildEvents = (before, after, index) => {
-  const eventCount = 20 + (index % 8);
-  const days = pickDays(eventCount, index);
-  const events = days.map((dayOffset, seq) => {
-    const hour = 7 + ((index + seq) % 10);
-    const minute = (index * 7 + seq * 13) % 55;
-    const at = atDay(APRIL, dayOffset, hour, minute);
-    const score = scoreForMoment(at, before, after, index);
-    const type = EVENT_TYPES[(index + seq) % EVENT_TYPES.length];
-    return event(type, at, score, detailsFor(type, score, index, seq));
-  });
-
-  // Hard anchors inside research window so before/after levels are exact.
-  const earlyResearch = atDay(
-    RESEARCH_FROM,
-    1 + (index % 5),
-    8 + (index % 5),
-    10 + (index % 20),
-  );
-  const lateResearch = atDay(
-    RESEARCH_FROM,
-    daysBetween(RESEARCH_FROM, RESEARCH_TO) - (index % 3),
-    15 + (index % 4),
-    20 + (index % 25),
-  );
+  // Extra peak early in research window so baseline (max) stays in "before" band
+  // even if later days are lower — needed for research table before counts.
+  const earlyExtra = daysBetween(APRIL, RESEARCH_FROM) + 1;
   events.push(
     event(
       'hint_requested',
-      earlyResearch,
-      targetScore(before, index, 3),
-      detailsFor('hint_requested', SCORE[before], index, 90),
+      atDay(earlyExtra, 8, 5 + (index % 20)),
+      scoreInBand(before, index, 3),
+      detailsFor('hint_requested', SCORE[before], index, 900),
     ),
     event(
       'answer_checked',
-      lateResearch,
-      targetScore(after, index, 4),
-      detailsFor('answer_checked', SCORE[after], index, 91),
+      atDay(daysBetween(APRIL, RESEARCH_TO), 18, 10 + (index % 20)),
+      scoreInBand(after, index, 4),
+      detailsFor('answer_checked', SCORE[after], index, 901),
     ),
   );
 
-  return events
-    .sort((a, b) => new Date(a.at) - new Date(b.at))
-    .filter((item, pos, list) => {
-      if (pos === 0) return true;
-      return new Date(item.at).getTime() !== new Date(list[pos - 1].at).getTime();
-    });
+  return events.sort((a, b) => new Date(a.at) - new Date(b.at));
 };
 
 const stripSeededRange = (events = []) =>
@@ -210,17 +200,7 @@ const stripSeededRange = (events = []) =>
     return Number.isNaN(at.getTime()) || at < APRIL || at > NOW;
   });
 
-const summarize = (plans) => {
-  const before = { high: 0, watch: 0, low: 0 };
-  const after = { high: 0, watch: 0, low: 0 };
-  plans.forEach((plan) => {
-    before[plan.before] += 1;
-    after[plan.after] += 1;
-  });
-  return { before, after };
-};
-
-const classifyPlansFromEvents = (plansWithEvents) => {
+const classifyResearchWindow = (plansWithEvents) => {
   const before = { high: 0, watch: 0, low: 0 };
   const after = { high: 0, watch: 0, low: 0 };
   plansWithEvents.forEach(({ events }) => {
@@ -234,6 +214,19 @@ const classifyPlansFromEvents = (plansWithEvents) => {
     after[levelOf(latestScore)] += 1;
   });
   return { before, after };
+};
+
+const dailySnapshot = (plansWithEvents, dayOffset) => {
+  const counts = { high: 0, watch: 0, low: 0 };
+  const dayStart = atDay(dayOffset, 0, 0);
+  const dayKey = dayStart.toISOString().slice(0, 10);
+  plansWithEvents.forEach(({ events }) => {
+    const onDay = events.filter((item) => new Date(item.at).toISOString().slice(0, 10) === dayKey);
+    if (!onDay.length) return;
+    const latest = [...onDay].sort((a, b) => new Date(b.at) - new Date(a.at))[0];
+    counts[levelOf(latest.riskScore)] += 1;
+  });
+  return { day: dayKey, ...counts, total: counts.high + counts.watch + counts.low };
 };
 
 const main = async () => {
@@ -256,10 +249,7 @@ const main = async () => {
     { $set: { rosterStatus: 'kept-account' } },
   );
 
-  // Remove previous research conversation batches.
-  await conversations.deleteMany({
-    sessionId: { $regex: '^research-heuristic-' },
-  });
+  await conversations.deleteMany({ sessionId: { $regex: '^research-heuristic-' } });
 
   const rosterStudents = await users
     .find({ role: { $ne: 'admin' }, rosterStatus: 'current' })
@@ -267,12 +257,11 @@ const main = async () => {
     .toArray();
 
   const plans = planTransitions(rosterStudents);
-  const expected = summarize(plans);
   const plansWithEvents = plans.map((plan) => ({
     ...plan,
     events: buildEvents(plan.before, plan.after, plan.index),
   }));
-  const verified = classifyPlansFromEvents(plansWithEvents);
+  const verified = classifyResearchWindow(plansWithEvents);
 
   if (
     verified.before.high !== 6 ||
@@ -284,6 +273,17 @@ const main = async () => {
   ) {
     throw new Error(`Research window mismatch: ${JSON.stringify(verified)}`);
   }
+
+  const sampleDays = [
+    0,
+    30,
+    60,
+    daysBetween(APRIL, RESEARCH_FROM),
+    daysBetween(APRIL, RESEARCH_FROM) + 7,
+    daysBetween(APRIL, RESEARCH_FROM) + 15,
+    daysBetween(APRIL, RESEARCH_TO),
+    daysBetween(APRIL, NOW),
+  ].map((day) => dailySnapshot(plansWithEvents, day));
 
   let createdConversations = 0;
   let strippedOther = 0;
@@ -313,7 +313,7 @@ const main = async () => {
       educationLevel: 'middle',
       subjectArea,
       course: subjectArea === 'english_language' ? 'english_language' : subjectArea,
-      title: 'Timeline can thiệp đi tắt nhận thức',
+      title: 'Timeline hàng ngày can thiệp đi tắt nhận thức',
       messages: [],
       dependencyEvents: events,
       interventionMetrics: {
@@ -340,7 +340,7 @@ const main = async () => {
       {
         $set: {
           analyticsDemo: {
-            version: 5,
+            version: 7,
             seededAt: new Date(),
             baselineScore: peak,
             currentScore: latest.riskScore,
@@ -350,6 +350,7 @@ const main = async () => {
             timeline: { from: APRIL, to: NOW },
             researchWindow: { from: RESEARCH_FROM, to: RESEARCH_TO },
             transition: { before, after },
+            dailyEvents: events.length,
           },
           updatedAt: new Date(),
         },
@@ -360,14 +361,13 @@ const main = async () => {
   console.log(JSON.stringify({
     ok: true,
     n: plans.length,
+    days: daysBetween(APRIL, NOW) + 1,
     timeline: { from: APRIL.toISOString(), to: NOW.toISOString() },
-    researchWindow: { from: RESEARCH_FROM.toISOString(), to: RESEARCH_TO.toISOString() },
-    expected,
     verifiedResearchWindow: verified,
+    sampleDays,
     keptAccountsHidden: kept.modifiedCount,
     createdConversations,
     strippedOtherConversations: strippedOther,
-    note: 'Filter 2026-08-22 → 2026-09-22 for research table. Broader filters show April→now decline.',
   }, null, 2));
 };
 
