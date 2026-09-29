@@ -34,9 +34,30 @@ const rotateApiKey = (triedKeyIndexes) => {
 };
 
 const getErrorStatus = error => Number(error?.status || error?.response?.status || 0);
+
+const getErrorText = (error) => {
+  const parts = [error?.message];
+
+  if (Array.isArray(error?.errorDetails)) {
+    for (const detail of error.errorDetails) {
+      if (detail?.reason) parts.push(detail.reason);
+      if (detail?.message) parts.push(detail.message);
+    }
+  }
+
+  return parts.filter(Boolean).join(' ');
+};
+
 const isRetryableStatus = status => [402, 408, 429, 500, 502, 503, 504].includes(status);
-const isInvalidApiKeyError = error => /api key not valid|invalid api key|api_key_invalid/i.test(String(error?.message || ''));
-const isBillingDepletedError = error => /prepayment credits are depleted|payment required|billing/i.test(String(error?.message || ''));
+const isInvalidApiKeyError = error => /api key not valid|invalid api key|api_key_invalid/i.test(getErrorText(error));
+const isBillingDepletedError = error => /prepayment credits are depleted|payment required|billing/i.test(getErrorText(error));
+const isSuspendedApiKeyError = error => {
+  const status = getErrorStatus(error);
+  if (status !== 403) return false;
+
+  return /consumer_suspended|has been suspended|permission denied|api_key_service_blocked|consumer.*suspended/i
+    .test(getErrorText(error));
+};
 
 const makeRequestWithRetry = async (requestFn, maxRetries = Math.max(API_KEYS.length, 1)) => {
   const triedKeyIndexes = new Set();
@@ -63,7 +84,8 @@ const makeRequestWithRetry = async (requestFn, maxRetries = Math.max(API_KEYS.le
       const canRotate =
         isRetryableStatus(status) ||
         (status === 400 && isInvalidApiKeyError(error)) ||
-        isBillingDepletedError(error);
+        isBillingDepletedError(error) ||
+        isSuspendedApiKeyError(error);
       if (!canRotate) throw error;
 
       triedKeyIndexes.add(activeKeyIndex);
@@ -74,6 +96,7 @@ const makeRequestWithRetry = async (requestFn, maxRetries = Math.max(API_KEYS.le
           failedKeyNumber: [...triedKeyIndexes].at(-1) + 1,
           nextKeyNumber: getActiveKeyNumber(),
           status,
+          reason: isSuspendedApiKeyError(error) ? 'consumer_suspended' : undefined,
         }));
         continue;
       }

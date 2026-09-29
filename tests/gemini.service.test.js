@@ -52,3 +52,28 @@ test('skips an invalid API key instead of turning it into a service outage', asy
   assert.equal(calls, 2);
   assert.equal(result.response.text(), 'ok');
 });
+
+test('rolls back to the next key when the active consumer is suspended', async () => {
+  let calls = 0;
+  const result = await makeRequestWithRetry(async () => {
+    calls += 1;
+    if (calls === 1) {
+      const error = new Error(
+        "Permission denied: Consumer 'api_key:AIzaSyTEST' has been suspended."
+      );
+      error.status = 403;
+      error.errorDetails = [
+        {
+          reason: 'CONSUMER_SUSPENDED',
+          domain: 'googleapis.com',
+        },
+      ];
+      throw error;
+    }
+
+    return { response: { text: () => 'ok' } };
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.response.text(), 'ok');
+});
