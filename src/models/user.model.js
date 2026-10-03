@@ -27,7 +27,7 @@ const userSchema = new mongoose.Schema({
   ethnicity: { type: String, trim: true },
   previousClass: { type: String, trim: true },
   rosterSource: { type: String, trim: true },
-  rosterStatus: { type: String, enum: ['current', 'current-account'], trim: true },
+  rosterStatus: { type: String, enum: ['current', 'current-account', 'kept-account'], trim: true },
   note: { type: String, trim: true },
   coins: {
     type: Number,

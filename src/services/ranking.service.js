@@ -124,12 +124,13 @@ class RankingService {
 
   static awardPoints(user, points, reason = 'general') {
     const oldRank = user.rank;
-    user.points += points;
-    
+    user.points = Number(user.points || 0) + Number(points || 0);
+
     const newRank = this.calculateRank(user.points);
     const rankChanged = oldRank !== newRank;
-    
-    if (rankChanged) {
+
+    // User.rank enum does not include legacy 'iron'; never persist it.
+    if (rankChanged && newRank !== 'iron') {
       user.rank = newRank;
     }
 
@@ -137,8 +138,8 @@ class RankingService {
       pointsAwarded: points,
       totalPoints: user.points,
       oldRank,
-      newRank,
-      rankChanged,
+      newRank: user.rank,
+      rankChanged: oldRank !== user.rank,
       reason,
     };
   }

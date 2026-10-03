@@ -65,24 +65,30 @@ const checkAnswer = async (req, res, imageData = null) => {
   let pointsAwarded = 0;
 
   if (isCorrect === true) {
-    const user = await User.findById(req.user._id);
-    if (user) {
-      const reward = await awardChestnuts(
-        user,
-        RULES.rewards.correctAnswer,
-        'correct_answer',
-        `correct-answer:${conversation._id}:${evaluation.questionId || 'current'}`
-      );
-      chestnutsAwarded = reward.awarded ? RULES.rewards.correctAnswer : 0;
-      pointsAwarded = 25;
-      const pointsResult = RankingService.awardPoints(user, pointsAwarded, 'correct_answer');
-      await user.save();
-      if (pointsResult.rankChanged) {
-        const rank = RankingService.getRankInfo(pointsResult.newRank, language);
-        responseText += language === 'vi'
-          ? `\n\n🎉 RANK UP! Bạn đã thăng hạng lên ${rank.displayName} ${rank.icon}!\n${rank.displayDescription}`
-          : `\n\n🎉 RANK UP! You've been promoted to ${rank.displayName} ${rank.icon}!\n${rank.displayDescription}`;
+    try {
+      const user = await User.findById(req.user._id);
+      if (user) {
+        const reward = await awardChestnuts(
+          user,
+          RULES.rewards.correctAnswer,
+          'correct_answer',
+          `correct-answer:${conversation._id}:${evaluation.questionId || 'current'}`
+        );
+        chestnutsAwarded = reward.awarded ? RULES.rewards.correctAnswer : 0;
+        pointsAwarded = 25;
+        const pointsResult = RankingService.awardPoints(user, pointsAwarded, 'correct_answer');
+        await user.save();
+        if (pointsResult.rankChanged) {
+          const rank = RankingService.getRankInfo(pointsResult.newRank, language);
+          responseText += language === 'vi'
+            ? `\n\n🎉 RANK UP! Bạn đã thăng hạng lên ${rank.displayName} ${rank.icon}!\n${rank.displayDescription}`
+            : `\n\n🎉 RANK UP! You've been promoted to ${rank.displayName} ${rank.icon}!\n${rank.displayDescription}`;
+        }
       }
+    } catch (error) {
+      console.error('Correct-answer reward failed:', error.message);
+      chestnutsAwarded = 0;
+      pointsAwarded = 0;
     }
     responseText ||= getMessages(language).messages.success;
   } else if (isCorrect === false) {
@@ -90,8 +96,14 @@ const checkAnswer = async (req, res, imageData = null) => {
   }
 
   recordAnswerEvaluation(conversation, evaluation, isCorrect);
-  const badge = await ThinkerService.awardSelfTrialBadge(req.user._id, conversation);
-  const challengeBadges = await ThinkerService.awardChallengeBadges(req.user._id, conversation);
+  let badge = null;
+  let challengeBadges = [];
+  try {
+    badge = await ThinkerService.awardSelfTrialBadge(req.user._id, conversation);
+    challengeBadges = await ThinkerService.awardChallengeBadges(req.user._id, conversation);
+  } catch (error) {
+    console.error('Check-answer badge award failed:', error.message);
+  }
   if (isCorrect === false) responseText += InterventionService.getFoundationSupportMessage(conversation, language);
 
   conversation.history.push({
