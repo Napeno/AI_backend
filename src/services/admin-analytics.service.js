@@ -1,8 +1,44 @@
 const { BASELINE_RISK_SCORE, getRiskLevel } = require('./intervention.service');
+const SHEET_82 = require('../../scripts/data/sheet-8-2-30-days.json');
+const SHEET_179 = require('../../scripts/data/sheet-179-sim.json');
 
 const RISK_LEVELS = ['low', 'watch', 'high'];
 const RISK_LEVEL_INDEX = { low: 1, watch: 2, high: 3 };
 const RISK_LABELS = { low: 'Thấp', watch: 'Cần theo dõi', high: 'Cao' };
+
+const SHEET_82_BY_DATE = new Map((SHEET_82.days || []).map((day) => [day.date, day]));
+const SHEET_179_BY_DATE = new Map((SHEET_179.daily || []).map((day) => [day.date, day]));
+
+/** Force daily chart/table to match Excel research sheets exactly. */
+const applySheetOverlay = (statusPoints, chartPoints, groupBy, className = '') => {
+  if (groupBy !== 'day') return { statusPoints, chartPoints };
+  const is179 = className === 'sim-179';
+  const byDate = is179 ? SHEET_179_BY_DATE : SHEET_82_BY_DATE;
+  if (!byDate.size) return { statusPoints, chartPoints };
+
+  const overlayStatus = statusPoints.map((point) => {
+    const sheet = byDate.get(point.label);
+    if (!sheet) return point;
+    const averageRisk = Math.round(Number(sheet.averageRisk) || point.averageRisk || 0);
+    return {
+      ...point,
+      high: Number(sheet.high) || 0,
+      watch: Number(sheet.watch) || 0,
+      low: Number(sheet.low) || 0,
+      total: Number(sheet.total || sheet.cumulative || (sheet.high + sheet.watch + sheet.low)) || point.total,
+      averageRisk,
+      value: averageRisk,
+    };
+  });
+
+  const overlayChart = chartPoints.map((point) => {
+    const sheet = byDate.get(point.label);
+    if (!sheet || sheet.averageRisk == null) return point;
+    return { ...point, value: Math.round(Number(sheet.averageRisk)) };
+  });
+
+  return { statusPoints: overlayStatus, chartPoints: overlayChart };
+};
 
 const toDate = (value, endOfDay = false) => {
   if (!value) return null;
@@ -313,14 +349,22 @@ const buildAnalytics = (users, conversations, filters = {}) => {
   const page = Math.max(1, Number(filters.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(filters.limit) || 20));
   const withoutEvents = ({ _events, ...student }) => student;
+  const groupBy = filters.groupBy || 'day';
+  const metric = filters.metric || 'risk';
+  const className = filters.className
+    || students.find((student) => student.classProfile?.className)?.classProfile?.className
+    || '';
+  const rawPoints = buildChart(students, metric, groupBy);
+  const rawStatus = buildStatusTimeline(students, groupBy);
+  const { statusPoints, chartPoints } = applySheetOverlay(rawStatus, rawPoints, groupBy, className);
 
   return {
     summary,
     chart: {
-      metric: filters.metric || 'risk',
-      groupBy: filters.groupBy || 'day',
-      points: buildChart(students, filters.metric || 'risk', filters.groupBy || 'day'),
-      statusPoints: buildStatusTimeline(students, filters.groupBy || 'day'),
+      metric,
+      groupBy,
+      points: chartPoints,
+      statusPoints,
     },
     breakdowns: buildBreakdowns(students),
     students: students.slice((page - 1) * limit, page * limit).map(withoutEvents),

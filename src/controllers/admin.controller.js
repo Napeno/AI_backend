@@ -9,6 +9,7 @@ const allowed = (value, values) => (values.includes(value) ? value : undefined);
 const getFilters = (query) => ({
   from: query.from,
   to: query.to,
+  className: typeof query.className === "string" ? query.className.trim() : "",
   educationLevel: allowed(query.educationLevel, [
     "elementary",
     "middle",
@@ -52,11 +53,19 @@ const getFilters = (query) => ({
 
 const loadAnalytics = async (filters) => {
   // ponytail: in-memory aggregation is sufficient for the current school-sized dataset; move to Mongo aggregation if it grows materially.
+  const userQuery = {
+    role: { $ne: "admin" },
+  };
+  if (filters.className === "sim-179") {
+    userQuery.rosterStatus = "sim-179";
+    userQuery.className = "sim-179";
+  } else {
+    userQuery.rosterStatus = { $in: ["current", "current-account"] };
+    if (filters.className) userQuery.className = filters.className;
+  }
+
   const [users, conversations] = await Promise.all([
-    User.find({
-      role: { $ne: "admin" },
-      rosterStatus: { $in: ["current", "current-account"] },
-    })
+    User.find(userQuery)
       .select(
         "name username className rosterNumber dateOfBirth gender ethnicity previousClass rosterStatus note dependencyAssessments createdAt",
       )

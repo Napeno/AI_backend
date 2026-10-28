@@ -1,8 +1,8 @@
 /**
  * Seed lớp 8.2 (47 HS) khớp sheet Theo_doi_ThinkBridge_8.2_30_ngay.xlsx:
  * - 25/04 → 25/05: đúng count Cao/Theo dõi/Thấp từng ngày trong sheet
- * - 01/04 → 24/04: giữ trạng thái ngày đầu (6/22/19)
- * - 26/05 → hôm nay: giữ trạng thái ngày cuối (0/15/32) + giảm nhẹ
+ * - 26/05 → hôm nay: giữ trạng thái ngày cuối (0/15/32)
+ * - Không seed trước 25/04 (tránh đoạn đứng im giả trên dashboard)
  *
  * Usage:
  *   node scripts/seed-heuristic-research.js
@@ -15,8 +15,8 @@ const mongoose = require('mongoose');
 const { getRiskLevel } = require('../src/services/intervention.service');
 const SHEET = require('./data/sheet-8-2-30-days.json');
 
-const APRIL = new Date('2026-04-01T00:00:00.000Z');
-const SHEET_FROM = new Date(`${SHEET.from}T00:00:00.000Z`);
+const TIMELINE_START = new Date(`${SHEET.from}T00:00:00.000Z`);
+const SHEET_FROM = TIMELINE_START;
 const SHEET_TO = new Date(`${SHEET.to}T23:59:59.999Z`);
 const endOfTodayUtc = () => {
   const now = new Date();
@@ -43,7 +43,7 @@ const levelOf = (score) => getRiskLevel(score);
 const daysBetween = (from, to) => Math.floor((to - from) / dayMs);
 
 const atDay = (dayOffset, hour = 9, minute = 0) => {
-  const date = new Date(APRIL.getTime() + dayOffset * dayMs);
+  const date = new Date(TIMELINE_START.getTime() + dayOffset * dayMs);
   date.setUTCHours(hour, minute, (dayOffset * 11) % 50, 0);
   if (date > NOW) date.setTime(NOW.getTime() - 30 * 60 * 1000);
   return date;
@@ -76,8 +76,14 @@ const sheetByDate = new Map(SHEET.days.map((day) => [day.date, day]));
 
 const targetForDate = (isoDate) => {
   if (sheetByDate.has(isoDate)) return sheetByDate.get(isoDate);
-  if (isoDate < SHEET.from) return { ...SHEET.start, date: isoDate, averageRisk: SHEET.start.barAverageRisk };
-  return { ...SHEET.end, date: isoDate, averageRisk: SHEET.end.barAverageRisk };
+  return {
+    date: isoDate,
+    high: SHEET.end.high,
+    watch: SHEET.end.watch,
+    low: SHEET.end.low,
+    averageRisk: SHEET.end.barAverageRisk,
+    total: 47,
+  };
 };
 
 /**
@@ -137,7 +143,7 @@ const detailsFor = (type, score, seq) => {
 };
 
 const buildAllDailyLevels = (plans) => {
-  const totalDays = daysBetween(APRIL, NOW);
+  const totalDays = daysBetween(TIMELINE_START, NOW);
   const byDay = [];
   for (let day = 0; day <= totalDays; day += 1) {
     const at = atDay(day, 0, 0);
@@ -175,7 +181,9 @@ const buildEvents = (plan, dailyLevels) => {
 const stripSeededRange = (events = []) =>
   events.filter((item) => {
     const at = new Date(item.at);
-    return Number.isNaN(at.getTime()) || at < APRIL || at > NOW;
+    // Drop anything from previous Apr-padding seeds as well.
+    const padStart = new Date('2026-04-01T00:00:00.000Z');
+    return Number.isNaN(at.getTime()) || at < padStart || at > NOW;
   });
 
 const snapshotDay = (plansWithEvents, isoDate) => {
@@ -274,7 +282,7 @@ const main = async () => {
     console.log(JSON.stringify({
       ok: true,
       dryRun: true,
-      days: daysBetween(APRIL, NOW) + 1,
+      days: daysBetween(TIMELINE_START, NOW) + 1,
       sheetDaysMatched: finalCompare.length,
       verifiedSheetWindow: verified,
       sampleCompare,
@@ -347,7 +355,7 @@ const main = async () => {
             riskLevel: latest.riskLevel,
             educationLevel: 'middle',
             subjectArea,
-            timeline: { from: APRIL, to: NOW },
+            timeline: { from: TIMELINE_START, to: NOW },
             sheetWindow: { from: SHEET_FROM, to: SHEET_TO, source: path.basename(SHEET.from ? 'sheet-8-2-30-days.json' : '') },
             transition: { before, after },
             dailyEvents: events.length,
@@ -361,8 +369,8 @@ const main = async () => {
   console.log(JSON.stringify({
     ok: true,
     n: finalPlans.length,
-    days: daysBetween(APRIL, NOW) + 1,
-    timeline: { from: APRIL.toISOString(), to: NOW.toISOString() },
+    days: daysBetween(TIMELINE_START, NOW) + 1,
+    timeline: { from: TIMELINE_START.toISOString(), to: NOW.toISOString() },
     sheetWindow: { from: SHEET.from, to: SHEET.to },
     verifiedSheetWindow: verified,
     sheetDaysMatched: finalCompare.filter((row) => row.countsMatch).length,
