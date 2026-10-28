@@ -1,0 +1,363 @@
+{
+  "cohort": "class-8-2",
+  "n": 47,
+  "from": "2026-04-25",
+  "to": "2026-05-25",
+  "start": {
+    "high": 6,
+    "watch": 22,
+    "low": 19,
+    "cardAverageRisk": 40,
+    "barAverageRisk": 78
+  },
+  "end": {
+    "high": 0,
+    "watch": 15,
+    "low": 32,
+    "cardAverageRisk": 25,
+    "barAverageRisk": 52
+  },
+  "days": [
+    {
+      "date": "2026-04-25",
+      "dayIndex": 1,
+      "averageRisk": 78.0,
+      "scoreSource": "Thật",
+      "high": 6,
+      "watch": 22,
+      "low": 19,
+      "countSource": "Thật",
+      "total": 47
+    },
+    {
+      "date": "2026-04-26",
+      "dayIndex": 2,
+      "averageRisk": 78.0,
+      "scoreSource": "Mô phỏng",
+      "high": 6,
+      "watch": 22,
+      "low": 19,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-04-27",
+      "dayIndex": 3,
+      "averageRisk": 78.0,
+      "scoreSource": "Mô phỏng",
+      "high": 6,
+      "watch": 22,
+      "low": 19,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-04-28",
+      "dayIndex": 4,
+      "averageRisk": 76.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 22,
+      "low": 20,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-04-29",
+      "dayIndex": 5,
+      "averageRisk": 79.0,
+      "scoreSource": "Mô phỏng",
+      "high": 6,
+      "watch": 22,
+      "low": 19,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-04-30",
+      "dayIndex": 6,
+      "averageRisk": 77.0,
+      "scoreSource": "Mô phỏng",
+      "high": 6,
+      "watch": 21,
+      "low": 20,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-01",
+      "dayIndex": 7,
+      "averageRisk": 75.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 22,
+      "low": 20,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-02",
+      "dayIndex": 8,
+      "averageRisk": 77.0,
+      "scoreSource": "Mô phỏng",
+      "high": 6,
+      "watch": 21,
+      "low": 20,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-03",
+      "dayIndex": 9,
+      "averageRisk": 74.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 21,
+      "low": 21,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-04",
+      "dayIndex": 10,
+      "averageRisk": 75.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 22,
+      "low": 20,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-05",
+      "dayIndex": 11,
+      "averageRisk": 76.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 22,
+      "low": 20,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-06",
+      "dayIndex": 12,
+      "averageRisk": 74.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 21,
+      "low": 21,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-07",
+      "dayIndex": 13,
+      "averageRisk": 75.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 22,
+      "low": 20,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-08",
+      "dayIndex": 14,
+      "averageRisk": 76.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 22,
+      "low": 20,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-09",
+      "dayIndex": 15,
+      "averageRisk": 73.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 20,
+      "low": 22,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-10",
+      "dayIndex": 16,
+      "averageRisk": 74.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 21,
+      "low": 21,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-11",
+      "dayIndex": 17,
+      "averageRisk": 74.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 21,
+      "low": 21,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-12",
+      "dayIndex": 18,
+      "averageRisk": 72.0,
+      "scoreSource": "Mô phỏng",
+      "high": 4,
+      "watch": 21,
+      "low": 22,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-13",
+      "dayIndex": 19,
+      "averageRisk": 73.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 20,
+      "low": 22,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-14",
+      "dayIndex": 20,
+      "averageRisk": 74.0,
+      "scoreSource": "Mô phỏng",
+      "high": 5,
+      "watch": 21,
+      "low": 21,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-15",
+      "dayIndex": 21,
+      "averageRisk": 72.0,
+      "scoreSource": "Mô phỏng",
+      "high": 4,
+      "watch": 21,
+      "low": 22,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-16",
+      "dayIndex": 22,
+      "averageRisk": 72.0,
+      "scoreSource": "Thật",
+      "high": 4,
+      "watch": 21,
+      "low": 22,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-17",
+      "dayIndex": 23,
+      "averageRisk": 68.0,
+      "scoreSource": "Thật",
+      "high": 3,
+      "watch": 20,
+      "low": 24,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-18",
+      "dayIndex": 24,
+      "averageRisk": 65.0,
+      "scoreSource": "Thật",
+      "high": 2,
+      "watch": 19,
+      "low": 26,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-19",
+      "dayIndex": 25,
+      "averageRisk": 64.0,
+      "scoreSource": "Thật",
+      "high": 2,
+      "watch": 19,
+      "low": 26,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-20",
+      "dayIndex": 26,
+      "averageRisk": 66.0,
+      "scoreSource": "Thật",
+      "high": 3,
+      "watch": 19,
+      "low": 25,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-21",
+      "dayIndex": 27,
+      "averageRisk": 62.0,
+      "scoreSource": "Thật",
+      "high": 2,
+      "watch": 18,
+      "low": 27,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-22",
+      "dayIndex": 28,
+      "averageRisk": 58.0,
+      "scoreSource": "Thật",
+      "high": 1,
+      "watch": 17,
+      "low": 29,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-23",
+      "dayIndex": 29,
+      "averageRisk": 60.0,
+      "scoreSource": "Thật",
+      "high": 1,
+      "watch": 18,
+      "low": 28,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-24",
+      "dayIndex": 30,
+      "averageRisk": 55.0,
+      "scoreSource": "Thật",
+      "high": 0,
+      "watch": 17,
+      "low": 30,
+      "countSource": "Mô phỏng",
+      "total": 47
+    },
+    {
+      "date": "2026-05-25",
+      "dayIndex": 31,
+      "averageRisk": 52.0,
+      "scoreSource": "Thật",
+      "high": 0,
+      "watch": 15,
+      "low": 32,
+      "countSource": "Thật",
+      "total": 47
+    }
+  ]
+}

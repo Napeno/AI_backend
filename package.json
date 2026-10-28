@@ -8,6 +8,8 @@
     "dev": "nodemon src/index.js",
     "seed:admin": "node scripts/seed-admin.js",
     "seed:heuristic-research": "node scripts/seed-heuristic-research.js",
+    "seed:sim-179": "node scripts/seed-sim-179.js",
+    "verify:sheet-match": "node scripts/verify-sheet-match.js",
     "recalculate:risk": "node scripts/recalculate-risk.js",
     "migrate:chestnuts": "node scripts/migrate-chestnuts.js",
     "reset:chestnuts": "node scripts/reset-chestnuts.js"
