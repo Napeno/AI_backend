@@ -1,6 +1,8 @@
 /**
- * Seed cohort mô phỏng 179 HS từ Mo_phong_179_HS_28-8_01-11.xlsx.
- * Users dùng rosterStatus=sim-179 nên KHÔNG lẫn vào dashboard lớp 8.2 (chỉ lấy current/current-account).
+ * Seed cohort 179 HS từ Mo_phong_179_HS_28-8_01-11.xlsx.
+ * - 28/08 → 01/11: đúng điểm/hoạt động trong Excel
+ * - 01/04 → 27/08: backfill ngẫu nhiên có kiểm soát cho HS vào sớm ngày 28/08
+ *   (thưa dần → đúng 4 HS ngày đầu sheet), random-walk điểm về đúng điểm 28/08
  *
  * Usage:
  *   node scripts/seed-sim-179.js
@@ -18,6 +20,8 @@ const PURGE = process.argv.includes('--purge');
 const SESSION_PREFIX = 'sim-179-daily-2026';
 const ROSTER_STATUS = 'sim-179';
 const CLASS_NAME = 'sim-179';
+const HISTORY_FROM = '2026-04-01';
+const dayMs = 24 * 60 * 60 * 1000;
 
 const EVENT_TYPES = [
   'hint_requested',
@@ -51,10 +55,88 @@ const event = (type, at, riskScore, details = {}) => ({
   details,
 });
 
-const buildEventsForStudent = (studentCode, index) => {
+const unitNoise = (index, day) => {
+  const x = Math.sin(index * 12.9898 + day * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+const listDates = (fromIso, toIsoInclusive) => {
+  const dates = [];
+  let cursor = new Date(`${fromIso}T00:00:00.000Z`);
+  const end = new Date(`${toIsoInclusive}T00:00:00.000Z`);
+  while (cursor <= end) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor = new Date(cursor.getTime() + dayMs);
+  }
+  return dates;
+};
+
+const firstSheetDate = (scores = {}) => {
+  const dates = Object.keys(scores).sort();
+  return dates[0] || null;
+};
+
+/**
+ * Pre-sheet history only for HS whose first sheet day is 28/08 (the 4 early joiners).
+ * Stagger start across Apr→Jul; sparse weekday activity; score walks into Aug 28 value.
+ */
+const buildPreHistoryEvents = (studentCode, index, joinRank, targetScore) => {
+  const historyDates = listDates(HISTORY_FROM, '2026-08-27');
+  // Stagger: rank0 ~ early April, rank3 ~ late July
+  const startOffset = 8 + joinRank * 28 + Math.floor(unitNoise(index, joinRank) * 10);
+  const startDate = historyDates[Math.min(startOffset, historyDates.length - 20)];
+  const startIdx = historyDates.indexOf(startDate);
+  const span = Math.max(1, historyDates.length - 1 - startIdx);
+  let score = clamp(targetScore + 8 - joinRank * 2 + Math.floor(unitNoise(index, 3) * 6), 12, 55);
+  const events = [];
+
+  for (let i = startIdx; i < historyDates.length; i += 1) {
+    const isoDate = historyDates[i];
+    const day = new Date(`${isoDate}T00:00:00.000Z`);
+    const weekday = day.getUTCDay(); // 0 CN ... 6 T7
+    const isWeekend = weekday === 0 || weekday === 6;
+    const progress = (i - startIdx) / span;
+    const activityChance = isWeekend ? 0.18 : 0.42 + progress * 0.2;
+    const active = unitNoise(index, i + 11) < activityChance;
+    // Always keep a score sample ~2x/week so timeline is readable; usedApp only when "active"
+    const keepScore = active || unitNoise(index, i + 29) < 0.22;
+    if (!keepScore) continue;
+
+    const pull = targetScore + (1 - progress) * (score - targetScore) * 0.15;
+    const step = Math.round((unitNoise(index, i + 7) - 0.5) * 6);
+    score = clamp(Math.round(score * 0.82 + pull * 0.18 + step), 8, 68);
+    if (i === historyDates.length - 1) score = clamp(Math.round(targetScore + (unitNoise(index, 99) - 0.5) * 2), 8, 68);
+
+    const type = EVENT_TYPES[(index + i) % EVENT_TYPES.length];
+    const hour = active ? 8 + ((index + i) % 9) : 19;
+    const minute = (index * 5 + i * 2) % 55;
+    events.push(event(type, atDate(isoDate, hour, minute, index), score, {
+      usedApp: active,
+      sheetCode: studentCode,
+      preHistory: true,
+      ...(type === 'answer_checked'
+        ? { isMeaningfulAttempt: score <= 55 || i % 2 === 1, isCorrect: score <= 35 && i % 3 !== 0 }
+        : type === 'hint_requested'
+          ? { isRapid: score >= 70 && i % 4 === 0 }
+          : {}),
+    }));
+  }
+  return events;
+};
+
+const buildEventsForStudent = (studentCode, index, earlyJoinerRank = -1) => {
   const scores = SHEET.scores[studentCode] || {};
   const activity = SHEET.activity[studentCode] || {};
   const events = [];
+  const firstDate = firstSheetDate(scores);
+
+  if (firstDate === SHEET.from && earlyJoinerRank >= 0) {
+    const targetScore = Number(scores[SHEET.from]);
+    if (Number.isFinite(targetScore)) {
+      events.push(...buildPreHistoryEvents(studentCode, index, earlyJoinerRank, targetScore));
+    }
+  }
+
   SHEET.dates.forEach((isoDate, dayIndex) => {
     const score = scores[isoDate];
     if (score == null) return;
@@ -122,10 +204,24 @@ const main = async () => {
     throw new Error(`Expected 179 students in sheet JSON, found ${studentCodes.length}`);
   }
 
+  const earlyJoiners = studentCodes
+    .map((code, index) => ({ code, index, first: firstSheetDate(SHEET.scores[code]) }))
+    .filter((row) => row.first === SHEET.from)
+    .sort((a, b) => a.index - b.index);
+  if (earlyJoiners.length !== 4) {
+    throw new Error(`Expected 4 HS joining on ${SHEET.from}, found ${earlyJoiners.length}`);
+  }
+  const earlyRank = new Map(earlyJoiners.map((row, rank) => [row.code, rank]));
+
   const plans = studentCodes.map((code, index) => ({
     code,
     index,
-    events: buildEventsForStudent(code, index),
+    events: buildEventsForStudent(code, index, earlyRank.has(code) ? earlyRank.get(code) : -1),
+  }));
+
+  const preHistorySample = ['2026-04-15', '2026-05-20', '2026-06-30', '2026-07-31', '2026-08-20'].map((date) => ({
+    date,
+    ...aggregateDay(plans, date, sheetLevelOf),
   }));
 
   const sampleDates = [SHEET.from, '2026-09-03', '2026-09-07', '2026-09-17', '2026-10-01', SHEET.to];
@@ -163,7 +259,9 @@ const main = async () => {
       ok: true,
       dryRun: true,
       students: plans.length,
-      dateRange: { from: SHEET.from, to: SHEET.to },
+      dateRange: { from: HISTORY_FROM, sheetFrom: SHEET.from, to: SHEET.to },
+      earlyJoiners: earlyJoiners.map((row) => row.code),
+      preHistorySample,
       sheetDaysMatched: matched,
       sheetDaysTotal: fullCompare.length,
       sampleCompare: compare,
@@ -261,11 +359,12 @@ const main = async () => {
     ok: true,
     students: insertedIds.length,
     createdConversations,
-    dateRange: { from: SHEET.from, to: SHEET.to },
+    dateRange: { from: HISTORY_FROM, sheetFrom: SHEET.from, to: SHEET.to },
+    earlyJoiners: earlyJoiners.map((row) => row.code),
+    preHistorySample,
     sheetDaysMatched: matched,
     sheetDaysTotal: fullCompare.length,
     sampleCompare: compare,
-    note: 'Cohort sim-179 dùng rosterStatus=sim-179, không hiện trên dashboard giáo viên lớp 8.2.',
   }, null, 2));
 };
 

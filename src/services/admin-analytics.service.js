@@ -40,7 +40,7 @@ const applySheetOverlay = (statusPoints, chartPoints, groupBy, className = '') =
     return { ...point, value: Math.round(Number(sheet.averageRisk)) };
   });
 
-  // Tab "Hoạt động" → DAU; tab "Điểm từng HS" aggregate → cumulative participants
+  // Sheet-window DAU / cumulative (merged later with pre-sheet computed series).
   let activityPoints = null;
   let participationPoints = null;
   if (is179) {
@@ -59,6 +59,36 @@ const applySheetOverlay = (statusPoints, chartPoints, groupBy, className = '') =
   }
 
   return { statusPoints: overlayStatus, chartPoints: overlayChart, activityPoints, participationPoints };
+};
+
+const mergeSeries = (basePoints = [], overlayPoints = []) => {
+  const byLabel = new Map();
+  basePoints.forEach((point) => byLabel.set(point.label, { ...point }));
+  overlayPoints.forEach((point) => byLabel.set(point.label, { ...point }));
+  return [...byLabel.values()].sort((a, b) => a.label.localeCompare(b.label));
+};
+
+/** Cumulative participants = students with any event on/before each day. */
+const buildParticipationTimeline = (students, groupBy = 'day') => {
+  const firstLabel = new Map();
+  students.forEach((student) => {
+    const events = [...(student._events || [])].sort((a, b) => new Date(a.at) - new Date(b.at));
+    if (!events.length) return;
+    firstLabel.set(student.id, bucketFor(events[0], groupBy));
+  });
+  const labels = [...new Set([...firstLabel.values()])].sort((a, b) => a.localeCompare(b));
+  // Also include later days that appear in events so cumulative continues
+  students.forEach((student) => {
+    (student._events || []).forEach((event) => {
+      const label = bucketFor(event, groupBy);
+      if (!labels.includes(label)) labels.push(label);
+    });
+  });
+  const ordered = [...new Set(labels)].sort((a, b) => a.localeCompare(b));
+  return ordered.map((label) => ({
+    label,
+    value: [...firstLabel.values()].filter((first) => first <= label).length,
+  }));
 };
 
 /** DAU from events tagged usedApp (Hoạt động=1); if tag missing, count any event that day. */
@@ -404,13 +434,15 @@ const buildAnalytics = (users, conversations, filters = {}) => {
     participationPoints: sheetParticipation,
   } = applySheetOverlay(rawStatus, rawPoints, groupBy, className);
 
-  // Only sheet "Hoạt động" (sim-179) gets DAU/participation bars.
-  // Class 8.2 has fixed roster 47 — never invent a flat "47 visitors/day" chart.
+  // sim-179: pre-sheet months from events + sheet window overlay.
+  // Class 8.2: no DAU/participation bars (fixed roster, no activity sheet).
   const is179 = className === 'sim-179';
   const activityPoints = is179
-    ? (sheetActivity || buildActivityTimeline(students, groupBy))
+    ? mergeSeries(buildActivityTimeline(students, groupBy), sheetActivity || [])
     : null;
-  const participationPoints = is179 ? sheetParticipation : null;
+  const participationPoints = is179
+    ? mergeSeries(buildParticipationTimeline(students, groupBy), sheetParticipation || [])
+    : null;
   const lastActivity = activityPoints?.length ? activityPoints[activityPoints.length - 1] : null;
   const lastParticipation = participationPoints?.length
     ? participationPoints[participationPoints.length - 1]

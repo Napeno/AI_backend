@@ -89,6 +89,8 @@ const main = async () => {
   users179.forEach((user) => {
     const conversation = convByUser.get(String(user._id));
     (conversation?.dependencyEvents || []).forEach((event) => {
+      // Only validate sheet-window activity (28/08→01/11); pre-history is synthetic.
+      if (event.details?.preHistory) return;
       if (event.details?.usedApp === true) {
         usedAppEvents += 1;
         const date = new Date(event.at).toISOString().slice(0, 10);
