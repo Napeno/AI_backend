@@ -397,7 +397,6 @@ const buildAnalytics = (users, conversations, filters = {}) => {
     || '';
   const rawPoints = buildChart(students, metric, groupBy);
   const rawStatus = buildStatusTimeline(students, groupBy);
-  const computedActivity = buildActivityTimeline(students, groupBy);
   const {
     statusPoints,
     chartPoints,
@@ -405,8 +404,13 @@ const buildAnalytics = (users, conversations, filters = {}) => {
     participationPoints: sheetParticipation,
   } = applySheetOverlay(rawStatus, rawPoints, groupBy, className);
 
-  const activityPoints = sheetActivity || computedActivity;
-  const participationPoints = sheetParticipation || null;
+  // Only sheet "Hoạt động" (sim-179) gets DAU/participation bars.
+  // Class 8.2 has fixed roster 47 — never invent a flat "47 visitors/day" chart.
+  const is179 = className === 'sim-179';
+  const activityPoints = is179
+    ? (sheetActivity || buildActivityTimeline(students, groupBy))
+    : null;
+  const participationPoints = is179 ? sheetParticipation : null;
   const lastActivity = activityPoints?.length ? activityPoints[activityPoints.length - 1] : null;
   const lastParticipation = participationPoints?.length
     ? participationPoints[participationPoints.length - 1]
@@ -415,8 +419,8 @@ const buildAnalytics = (users, conversations, filters = {}) => {
   return {
     summary: {
       ...summary,
-      dailyActiveStudents: lastActivity ? lastActivity.value : null,
-      cumulativeParticipants: lastParticipation ? lastParticipation.value : summary.totalStudents,
+      dailyActiveStudents: is179 && lastActivity ? lastActivity.value : null,
+      cumulativeParticipants: is179 && lastParticipation ? lastParticipation.value : null,
     },
     chart: {
       metric,
