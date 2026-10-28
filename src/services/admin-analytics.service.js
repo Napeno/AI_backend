@@ -11,10 +11,10 @@ const SHEET_179_BY_DATE = new Map((SHEET_179.daily || []).map((day) => [day.date
 
 /** Force daily chart/table to match Excel research sheets exactly. */
 const applySheetOverlay = (statusPoints, chartPoints, groupBy, className = '') => {
-  if (groupBy !== 'day') return { statusPoints, chartPoints };
+  if (groupBy !== 'day') return { statusPoints, chartPoints, activityPoints: null, participationPoints: null };
   const is179 = className === 'sim-179';
   const byDate = is179 ? SHEET_179_BY_DATE : SHEET_82_BY_DATE;
-  if (!byDate.size) return { statusPoints, chartPoints };
+  if (!byDate.size) return { statusPoints, chartPoints, activityPoints: null, participationPoints: null };
 
   const overlayStatus = statusPoints.map((point) => {
     const sheet = byDate.get(point.label);
@@ -28,6 +28,9 @@ const applySheetOverlay = (statusPoints, chartPoints, groupBy, className = '') =
       total: Number(sheet.total || sheet.cumulative || (sheet.high + sheet.watch + sheet.low)) || point.total,
       averageRisk,
       value: averageRisk,
+      visitors: sheet.visitors != null ? Number(sheet.visitors) : point.visitors,
+      cumulative: sheet.cumulative != null ? Number(sheet.cumulative) : point.cumulative,
+      newParticipants: sheet.newParticipants != null ? Number(sheet.newParticipants) : point.newParticipants,
     };
   });
 
@@ -37,7 +40,45 @@ const applySheetOverlay = (statusPoints, chartPoints, groupBy, className = '') =
     return { ...point, value: Math.round(Number(sheet.averageRisk)) };
   });
 
-  return { statusPoints: overlayStatus, chartPoints: overlayChart };
+  // Tab "Hoạt động" → DAU; tab "Điểm từng HS" aggregate → cumulative participants
+  let activityPoints = null;
+  let participationPoints = null;
+  if (is179) {
+    activityPoints = overlayStatus
+      .filter((point) => byDate.has(point.label))
+      .map((point) => ({
+        label: point.label,
+        value: Number(byDate.get(point.label).visitors) || 0,
+      }));
+    participationPoints = overlayStatus
+      .filter((point) => byDate.has(point.label))
+      .map((point) => ({
+        label: point.label,
+        value: Number(byDate.get(point.label).cumulative) || 0,
+      }));
+  }
+
+  return { statusPoints: overlayStatus, chartPoints: overlayChart, activityPoints, participationPoints };
+};
+
+/** DAU from events tagged usedApp (Hoạt động=1); if tag missing, count any event that day. */
+const buildActivityTimeline = (students, groupBy = 'day') => {
+  const buckets = new Map();
+  students.forEach((student) => {
+    const seen = new Set();
+    (student._events || []).forEach((event) => {
+      const hasFlag = event.details && Object.prototype.hasOwnProperty.call(event.details, 'usedApp');
+      if (hasFlag && event.details.usedApp !== true) return;
+      const label = bucketFor(event, groupBy);
+      const key = `${student.id}:${label}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const bucket = buckets.get(label) || { label, value: 0 };
+      bucket.value += 1;
+      buckets.set(label, bucket);
+    });
+  });
+  return [...buckets.values()].sort((a, b) => a.label.localeCompare(b.label));
 };
 
 const toDate = (value, endOfDay = false) => {
@@ -356,15 +397,34 @@ const buildAnalytics = (users, conversations, filters = {}) => {
     || '';
   const rawPoints = buildChart(students, metric, groupBy);
   const rawStatus = buildStatusTimeline(students, groupBy);
-  const { statusPoints, chartPoints } = applySheetOverlay(rawStatus, rawPoints, groupBy, className);
+  const computedActivity = buildActivityTimeline(students, groupBy);
+  const {
+    statusPoints,
+    chartPoints,
+    activityPoints: sheetActivity,
+    participationPoints: sheetParticipation,
+  } = applySheetOverlay(rawStatus, rawPoints, groupBy, className);
+
+  const activityPoints = sheetActivity || computedActivity;
+  const participationPoints = sheetParticipation || null;
+  const lastActivity = activityPoints?.length ? activityPoints[activityPoints.length - 1] : null;
+  const lastParticipation = participationPoints?.length
+    ? participationPoints[participationPoints.length - 1]
+    : null;
 
   return {
-    summary,
+    summary: {
+      ...summary,
+      dailyActiveStudents: lastActivity ? lastActivity.value : null,
+      cumulativeParticipants: lastParticipation ? lastParticipation.value : summary.totalStudents,
+    },
     chart: {
       metric,
       groupBy,
       points: chartPoints,
       statusPoints,
+      activityPoints,
+      participationPoints,
     },
     breakdowns: buildBreakdowns(students),
     students: students.slice((page - 1) * limit, page * limit).map(withoutEvents),

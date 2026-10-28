@@ -62,11 +62,15 @@ const buildEventsForStudent = (studentCode, index) => {
     const hour = active ? 8 + ((index + dayIndex) % 9) : 20;
     const minute = (index * 5 + dayIndex * 2) % 55;
     const type = EVENT_TYPES[(index + dayIndex) % EVENT_TYPES.length];
-    const details = type === 'answer_checked'
-      ? { isMeaningfulAttempt: score <= 55 || dayIndex % 2 === 1, isCorrect: score <= 35 && dayIndex % 3 !== 0 }
-      : type === 'hint_requested'
-        ? { isRapid: score >= 70 && dayIndex % 4 === 0 }
-        : {};
+    const details = {
+      usedApp: active,
+      sheetCode: studentCode,
+      ...(type === 'answer_checked'
+        ? { isMeaningfulAttempt: score <= 55 || dayIndex % 2 === 1, isCorrect: score <= 35 && dayIndex % 3 !== 0 }
+        : type === 'hint_requested'
+          ? { isRapid: score >= 70 && dayIndex % 4 === 0 }
+          : {}),
+    };
     events.push(event(type, atDate(isoDate, hour, minute, index), score, details));
   });
   return events.sort((a, b) => new Date(a.at) - new Date(b.at));
