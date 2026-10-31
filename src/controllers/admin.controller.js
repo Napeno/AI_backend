@@ -52,17 +52,12 @@ const getFilters = (query) => ({
 });
 
 const loadAnalytics = async (filters) => {
-  // ponytail: in-memory aggregation is sufficient for the current school-sized dataset; move to Mongo aggregation if it grows materially.
+  // Unified research cohort: always 179 (47 pilot ⊂ 179).
   const userQuery = {
     role: { $ne: "admin" },
+    rosterStatus: "sim-179",
+    className: "sim-179",
   };
-  if (filters.className === "sim-179") {
-    userQuery.rosterStatus = "sim-179";
-    userQuery.className = "sim-179";
-  } else {
-    userQuery.rosterStatus = { $in: ["current", "current-account"] };
-    if (filters.className) userQuery.className = filters.className;
-  }
 
   const [users, conversations] = await Promise.all([
     User.find(userQuery)
@@ -79,7 +74,7 @@ const loadAnalytics = async (filters) => {
   return {
     users,
     conversations,
-    analytics: buildAnalytics(users, conversations, filters),
+    analytics: buildAnalytics(users, conversations, { ...filters, className: "sim-179" }),
   };
 };
 
@@ -106,7 +101,7 @@ const getStudent = async (req, res) => {
     const user = await User.findOne({
       _id: req.params.id,
       role: { $ne: "admin" },
-      rosterStatus: { $in: ["current", "current-account"] },
+      rosterStatus: { $in: ["sim-179", "current", "current-account"] },
     })
       .select(
         "name username className rosterNumber dateOfBirth gender ethnicity previousClass rosterStatus note dependencyAssessments +teacherNotes",
@@ -148,7 +143,7 @@ const addNote = async (req, res) => {
     const student = await User.findOne({
       _id: req.params.id,
       role: { $ne: "admin" },
-      rosterStatus: { $in: ["current", "current-account"] },
+      rosterStatus: { $in: ["sim-179", "current", "current-account"] },
     })
       .select("_id")
       .lean();

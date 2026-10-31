@@ -9,56 +9,63 @@ const RISK_LABELS = { low: 'Thấp', watch: 'Cần theo dõi', high: 'Cao' };
 const SHEET_82_BY_DATE = new Map((SHEET_82.days || []).map((day) => [day.date, day]));
 const SHEET_179_BY_DATE = new Map((SHEET_179.daily || []).map((day) => [day.date, day]));
 
-/** Force daily chart/table to match Excel research sheets exactly. */
-const applySheetOverlay = (statusPoints, chartPoints, groupBy, className = '') => {
-  if (groupBy !== 'day') return { statusPoints, chartPoints, activityPoints: null, participationPoints: null };
-  const is179 = className === 'sim-179';
-  const byDate = is179 ? SHEET_179_BY_DATE : SHEET_82_BY_DATE;
-  if (!byDate.size) return { statusPoints, chartPoints, activityPoints: null, participationPoints: null };
+/**
+ * Date-based overlay for unified 47⊂179 timeline:
+ * - days in sheet 8.2 → high/watch/low/averageRisk from 8.2
+ * - days in sheet 179 → high/watch/low/averageRisk + visitors from 179
+ * - never overlay cumulative (continuous from Apr)
+ */
+const applySheetOverlay = (statusPoints, chartPoints, groupBy) => {
+  if (groupBy !== 'day') {
+    return { statusPoints, chartPoints, activityPoints: null };
+  }
+  if (!SHEET_82_BY_DATE.size && !SHEET_179_BY_DATE.size) {
+    return { statusPoints, chartPoints, activityPoints: null };
+  }
+
+  const sheetFor = (label) => {
+    if (SHEET_82_BY_DATE.has(label)) return { sheet: SHEET_82_BY_DATE.get(label), source: '82' };
+    if (SHEET_179_BY_DATE.has(label)) return { sheet: SHEET_179_BY_DATE.get(label), source: '179' };
+    return null;
+  };
 
   const overlayStatus = statusPoints.map((point) => {
-    const sheet = byDate.get(point.label);
-    if (!sheet) return point;
+    const hit = sheetFor(point.label);
+    if (!hit) return point;
+    const { sheet, source } = hit;
     const averageRisk = Math.round(Number(sheet.averageRisk) || point.averageRisk || 0);
+    const total = source === '82'
+      ? (Number(sheet.total) || sheet.high + sheet.watch + sheet.low || point.total)
+      : (Number(sheet.high) + Number(sheet.watch) + Number(sheet.low) || point.total);
     return {
       ...point,
       high: Number(sheet.high) || 0,
       watch: Number(sheet.watch) || 0,
       low: Number(sheet.low) || 0,
-      total: Number(sheet.total || sheet.cumulative || (sheet.high + sheet.watch + sheet.low)) || point.total,
+      total,
       averageRisk,
       value: averageRisk,
       visitors: sheet.visitors != null ? Number(sheet.visitors) : point.visitors,
-      cumulative: sheet.cumulative != null ? Number(sheet.cumulative) : point.cumulative,
+      // keep event-based cumulative; do not take Excel cumulative
       newParticipants: sheet.newParticipants != null ? Number(sheet.newParticipants) : point.newParticipants,
     };
   });
 
   const overlayChart = chartPoints.map((point) => {
-    const sheet = byDate.get(point.label);
-    if (!sheet || sheet.averageRisk == null) return point;
-    return { ...point, value: Math.round(Number(sheet.averageRisk)) };
+    const hit = sheetFor(point.label);
+    if (!hit || hit.sheet.averageRisk == null) return point;
+    return { ...point, value: Math.round(Number(hit.sheet.averageRisk)) };
   });
 
-  // Sheet-window DAU / cumulative (merged later with pre-sheet computed series).
-  let activityPoints = null;
-  let participationPoints = null;
-  if (is179) {
-    activityPoints = overlayStatus
-      .filter((point) => byDate.has(point.label))
-      .map((point) => ({
-        label: point.label,
-        value: Number(byDate.get(point.label).visitors) || 0,
-      }));
-    participationPoints = overlayStatus
-      .filter((point) => byDate.has(point.label))
-      .map((point) => ({
-        label: point.label,
-        value: Number(byDate.get(point.label).cumulative) || 0,
-      }));
-  }
+  // DAU overlay only for sheet-179 window (has visitors column).
+  const activityPoints = overlayStatus
+    .filter((point) => SHEET_179_BY_DATE.has(point.label))
+    .map((point) => ({
+      label: point.label,
+      value: Number(SHEET_179_BY_DATE.get(point.label).visitors) || 0,
+    }));
 
-  return { statusPoints: overlayStatus, chartPoints: overlayChart, activityPoints, participationPoints };
+  return { statusPoints: overlayStatus, chartPoints: overlayChart, activityPoints };
 };
 
 const mergeSeries = (basePoints = [], overlayPoints = []) => {
@@ -422,37 +429,27 @@ const buildAnalytics = (users, conversations, filters = {}) => {
   const withoutEvents = ({ _events, ...student }) => student;
   const groupBy = filters.groupBy || 'day';
   const metric = filters.metric || 'risk';
-  const className = filters.className
-    || students.find((student) => student.classProfile?.className)?.classProfile?.className
-    || '';
   const rawPoints = buildChart(students, metric, groupBy);
   const rawStatus = buildStatusTimeline(students, groupBy);
   const {
     statusPoints,
     chartPoints,
     activityPoints: sheetActivity,
-    participationPoints: sheetParticipation,
-  } = applySheetOverlay(rawStatus, rawPoints, groupBy, className);
+  } = applySheetOverlay(rawStatus, rawPoints, groupBy);
 
-  // sim-179: pre-sheet months from events + sheet window overlay.
-  // Class 8.2: no DAU/participation bars (fixed roster, no activity sheet).
-  const is179 = className === 'sim-179';
-  const activityPoints = is179
-    ? mergeSeries(buildActivityTimeline(students, groupBy), sheetActivity || [])
-    : null;
-  const participationPoints = is179
-    ? mergeSeries(buildParticipationTimeline(students, groupBy), sheetParticipation || [])
-    : null;
-  const lastActivity = activityPoints?.length ? activityPoints[activityPoints.length - 1] : null;
-  const lastParticipation = participationPoints?.length
+  // Unified 179: DAU from events, merge sheet-179 visitors; cumulative always from events.
+  const activityPoints = mergeSeries(buildActivityTimeline(students, groupBy), sheetActivity || []);
+  const participationPoints = buildParticipationTimeline(students, groupBy);
+  const lastActivity = activityPoints.length ? activityPoints[activityPoints.length - 1] : null;
+  const lastParticipation = participationPoints.length
     ? participationPoints[participationPoints.length - 1]
     : null;
 
   return {
     summary: {
       ...summary,
-      dailyActiveStudents: is179 && lastActivity ? lastActivity.value : null,
-      cumulativeParticipants: is179 && lastParticipation ? lastParticipation.value : null,
+      dailyActiveStudents: lastActivity ? lastActivity.value : null,
+      cumulativeParticipants: lastParticipation ? lastParticipation.value : null,
     },
     chart: {
       metric,
