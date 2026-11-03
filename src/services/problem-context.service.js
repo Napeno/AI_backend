@@ -5,6 +5,36 @@ const parseJson = (text) => parseModelJson(text);
 
 const getQuestionIdFromText = (text = '') => String(text).toLowerCase().match(/(?:câu|cau|question)\s*([a-z0-9]+)/i)?.[1] || null;
 
+const isNewProblemMessage = (text, context = {}) => {
+  const value = String(text || '').trim();
+  if (!value) return false;
+  if (!context?.questions?.length) return true;
+  const normalized = value.replace(/\s+/g, ' ').toLowerCase();
+  const current = String(context.sourceText || '').replace(/\s+/g, ' ').toLowerCase();
+  if (!current || normalized === current) return false;
+  const requestedId = getQuestionIdFromText(value);
+  const namesExisting = Boolean(requestedId && context.questions.some(question => question.id === requestedId));
+  const heading = /(?:^|\n)\s*bài\s*\d+/i.test(value);
+  const multiline = value.split('\n').filter(line => line.trim()).length >= 3;
+  const expression = /[=^²]|\d+\s*[+\-−×*/]\s*\d+|[a-z]\s*(?:\^|²)/i.test(value);
+  if (heading || multiline) return true;
+  if (expression && !namesExisting) return true;
+  if (value.length >= 180 && !namesExisting) return true;
+  return false;
+};
+
+const replaceTextProblem = (conversation, text) => {
+  conversation.problemContext = {
+    sourceText: text,
+    questions: [{ id: 'main', prompt: text }],
+    suggestedQuestionId: 'main',
+    activeQuestionId: 'main',
+    extractedAt: new Date(),
+  };
+  conversation.markModified?.('problemContext');
+  return toPublicProblemContext(conversation.problemContext);
+};
+
 const toPublicProblemContext = (context = {}) => ({
   sourceText: context.sourceText || '',
   questions: Array.isArray(context.questions) ? context.questions.map(question => ({
@@ -20,10 +50,11 @@ const setTextProblemContext = (conversation, sourceText) => {
   const text = String(sourceText || '').trim();
   if (!text) return toPublicProblemContext(conversation.problemContext);
 
-  // A text follow-up after uploading a problem image is still about that
-  // image. Keep the extracted problem and image instead of replacing them
-  // with a short follow-up such as "Câu c...".
-  if (conversation.problemContext?.sourceImage?.url && conversation.problemContext.questions?.length) {
+  if (isNewProblemMessage(text, conversation.problemContext)) return replaceTextProblem(conversation, text);
+
+  // A short follow-up stays on the current problem. "Câu c..." only switches
+  // the active part; a pasted new exercise replaces the context above.
+  if (conversation.problemContext?.questions?.length) {
     const requestedQuestionId = getQuestionIdFromText(text);
     const requestedQuestion = conversation.problemContext.questions.find(question => question.id === requestedQuestionId);
     if (requestedQuestion) {
@@ -34,15 +65,7 @@ const setTextProblemContext = (conversation, sourceText) => {
     return toPublicProblemContext(conversation.problemContext);
   }
 
-  conversation.problemContext = {
-    sourceText: text,
-    questions: [{ id: 'main', prompt: text }],
-    suggestedQuestionId: 'main',
-    activeQuestionId: 'main',
-    extractedAt: new Date(),
-  };
-  conversation.markModified?.('problemContext');
-  return toPublicProblemContext(conversation.problemContext);
+  return replaceTextProblem(conversation, text);
 };
 
 const extractImageProblemContext = async ({ sourceText, image, language = 'en' }) => {
@@ -111,8 +134,19 @@ const setImageProblemContext = async (conversation, { sourceText, image, languag
   return toPublicProblemContext(conversation.problemContext);
 };
 
+const latestUserMessage = (conversation) => [...(conversation.history || [])].reverse().find(message => message.role === 'user');
+
 const ensureProblemContext = async (conversation, language = 'en') => {
   if (conversation.problemContext?.questions?.length) {
+    const latest = latestUserMessage(conversation);
+    const latestText = latest?.parts?.map(part => part.text || '').join('\n').trim();
+    const latestImage = latest?.parts?.find(part => part.image?.url)?.image;
+    if (latestImage?.url && latestImage.url !== conversation.problemContext.sourceImage?.url) {
+      return setImageProblemContext(conversation, { sourceText: latestText, image: latestImage, language });
+    }
+    if (latestText && isNewProblemMessage(latestText, conversation.problemContext)) {
+      return setTextProblemContext(conversation, latestText);
+    }
     const sourceImageMessage = (conversation.history || []).find(message => message.parts?.some(part => part.image?.url));
     if (!conversation.problemContext.sourceImage?.url && sourceImageMessage) {
       const image = sourceImageMessage.parts.find(part => part.image?.url)?.image;
@@ -158,6 +192,7 @@ const getActiveQuestion = (context = {}) => context.questions?.find(question => 
 
 module.exports = {
   ensureProblemContext,
+  isNewProblemMessage,
   getActiveQuestion,
   setActiveQuestion,
   setImageProblemContext,

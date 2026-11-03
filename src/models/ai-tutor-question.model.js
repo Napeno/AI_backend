@@ -67,6 +67,7 @@ const aiTutorLessonSchema = new mongoose.Schema({
   currentStepIndex: { type: Number, default: -1, min: -1 },
   attempts: { type: mongoose.Schema.Types.Mixed, default: [] },
   completed: { type: Boolean, default: false },
+  archived: { type: Boolean, default: false },
   startedAt: { type: Date, default: Date.now },
   completedAt: { type: Date, required: false },
 }, { timestamps: true });

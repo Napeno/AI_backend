@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { filterVisibleLessons } = require('../src/controllers/ai-tutor.controller');
+const { filterVisibleLessons, isUsableLesson } = require('../src/controllers/ai-tutor.controller');
 
 const usableLesson = (overrides = {}) => ({
   sessionId: 'session-1',
@@ -23,10 +23,13 @@ test('hides stale AI tutor lessons that cannot be opened from Chat', () => {
     usableLesson({ sourceText: 'Bản cũ' }),
     usableLesson({ sessionId: 'deleted-session' }),
     usableLesson({ generationVersion: 7 }),
+    usableLesson({ archived: true, sourceQuestionId: 'archived', sourceText: 'Bài đã lưu trữ' }),
   ];
 
   assert.deepEqual(
     filterVisibleLessons(lessons, new Set(['session-1'])),
     [lessons[0]],
   );
+  assert.equal(isUsableLesson(usableLesson({ archived: true })), false);
+  assert.equal(isUsableLesson(usableLesson()), true);
 });

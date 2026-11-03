@@ -10,6 +10,7 @@ const ThinkerService = require('../services/thinker.service');
 const LESSON_GENERATION_VERSION = 14;
 const lessonWorkers = new Set();
 const isUsableLesson = lesson => lesson?.generationVersion === LESSON_GENERATION_VERSION
+  && !lesson.archived
   && Array.isArray(lesson.questions)
   && lesson.questions.length === 5
   && lesson.questions.every(question => question
@@ -28,7 +29,7 @@ const isUsableLesson = lesson => lesson?.generationVersion === LESSON_GENERATION
 const filterVisibleLessons = (lessons, activeSessions) => {
   const seen = new Set();
   return lessons.filter(lesson => {
-    if (!activeSessions.has(lesson.sessionId) || !isUsableLesson(lesson)) return false;
+    if (lesson.archived || !activeSessions.has(lesson.sessionId) || !isUsableLesson(lesson)) return false;
     const key = `${lesson.sessionId}:${lesson.sourceQuestionId}`;
     if (seen.has(key)) return false;
     seen.add(key);
@@ -162,11 +163,12 @@ const advanceOrWait = lesson => {
 
 const createLesson = async (req, res) => {
   try {
-    const { sessionId, questionId, language = 'vi' } = req.body || {};
+    const { sessionId, questionId, language = 'vi', regenerate = false } = req.body || {};
     if (!sessionId) return res.status(400).json({ error: 'Vui lòng cung cấp mã phiên học.' });
     const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
     if (!conversation) return res.status(404).json({ error: 'Không tìm thấy cuộc trò chuyện.' });
     await ensureProblemContext(conversation, language);
+    if (conversation.isModified?.('problemContext')) await conversation.save();
     const selected = conversation.problemContext?.questions?.find(question => question.id === String(questionId || conversation.problemContext.activeQuestionId || '').toLowerCase()) || getActiveQuestion(conversation.problemContext);
     if (!selected) return res.status(400).json({ error: 'Không tìm thấy đề bài trong cuộc trò chuyện.' });
     const sourceText = selected.prompt || conversation.problemContext.sourceText || '';
@@ -177,20 +179,27 @@ const createLesson = async (req, res) => {
       .filter(message => message.trim().length > 8)
       .join('\n')
       .slice(-6000);
-    const previousLesson = await AiTutorLesson.findOne({
+    const lessonQuery = {
       user: req.user._id,
       sessionId,
       sourceQuestionId: selected.id,
       sourceText,
-      completed: true,
-    }).sort({ completedAt: -1, updatedAt: -1 }).select('questions.prompt').lean();
-    const existing = await AiTutorLesson.findOne({
+      archived: { $ne: true },
+    };
+    if (regenerate) {
+      await AiTutorLesson.updateMany(
+        { ...lessonQuery, completed: false },
+        { $set: { archived: true } },
+      );
+    }
+    const priorLessons = await AiTutorLesson.find({
       user: req.user._id,
       sessionId,
       sourceQuestionId: selected.id,
       sourceText,
-      completed: false,
-    }).sort({ updatedAt: -1 });
+    }).select('questions.prompt').lean();
+    const previousQuestions = [...new Set(priorLessons.flatMap(lesson => (lesson.questions || []).map(question => question.prompt)).filter(Boolean))];
+    const existing = regenerate ? null : await AiTutorLesson.findOne({ ...lessonQuery, completed: false }).sort({ updatedAt: -1 });
     // Reuse only lessons from the current generation; older lessons must be regenerated.
     if (isUsableLesson(existing)) {
       let changed = false;
@@ -199,7 +208,7 @@ const createLesson = async (req, res) => {
       if (changed) await existing.save();
       return res.json({ lesson: publicLesson(existing) });
     }
-    const generationContext = { language, questionId: selected.id, sourceText, sourceExpression, conversationContext, previousQuestions: previousLesson?.questions?.map(question => question.prompt) || [], sourceImage: conversation.problemContext.sourceImage, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel, generationSeed: `${Date.now()}-${makeLessonId()}` };
+    const generationContext = { language, questionId: selected.id, sourceText, sourceExpression, conversationContext, previousQuestions, sourceImage: conversation.problemContext.sourceImage, subjectArea: conversation.subjectArea, course: conversation.course, educationLevel: conversation.educationLevel, generationSeed: `${Date.now()}-${makeLessonId()}` };
     if (existing?.generationVersion === LESSON_GENERATION_VERSION
       && existing.generationStatus === 'generating') {
       startLessonWorker(existing.lessonId, existing.generationContext || generationContext);
@@ -264,7 +273,7 @@ const previous = async (req, res) => {
 const listLessons = async (req, res) => {
   const lessons = await AiTutorLesson.find({ user: req.user._id })
     .sort({ updatedAt: -1 })
-    .select('lessonId sessionId sourceQuestionId sourceText subjectArea course educationLevel generationVersion completed currentQuestionIndex questions createdAt updatedAt')
+    .select('lessonId sessionId sourceQuestionId sourceText subjectArea course educationLevel generationVersion completed archived currentQuestionIndex questions createdAt updatedAt')
     .lean();
   const sessionIds = [...new Set(lessons.map(lesson => lesson.sessionId).filter(Boolean))];
   const conversations = await Conversation.find({ user: req.user._id, sessionId: { $in: sessionIds } })
@@ -443,4 +452,4 @@ const generate = async (req, res) => {
 };
 const legacyAnswer = async (req, res) => res.status(410).json({ error: 'Hãy mở AI Tutor từ một bài trong Chat.' });
 
-module.exports = { createLesson, getLesson, previous, listLessons, answer, completeStep, analytics, generate, answerLegacy: legacyAnswer, filterVisibleLessons };
+module.exports = { createLesson, getLesson, previous, listLessons, answer, completeStep, analytics, generate, answerLegacy: legacyAnswer, filterVisibleLessons, isUsableLesson };

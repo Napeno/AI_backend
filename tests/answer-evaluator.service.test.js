@@ -66,3 +66,35 @@ test('keeps the original image context when a student asks a text follow-up', ()
   assert.equal(conversation.problemContext.sourceImage.url, 'https://example.com/problem.jpg');
   assert.equal(conversation.problemContext.activeQuestionId, 'c');
 });
+
+test('replaces a stuck image problem when the student pastes a new exercise', async () => {
+  const conversation = {
+    problemContext: {
+      sourceText: 'Hằng đẳng thức là gì?',
+      sourceImage: { url: 'https://example.com/old.jpg' },
+      questions: [{ id: 'main', prompt: 'Hằng đẳng thức là gì?' }],
+      suggestedQuestionId: 'main',
+      activeQuestionId: 'main',
+    },
+    history: [{
+      role: 'user',
+      parts: [{ text: 'Bài 2. Viết lại các đa thức thành vế kia.\na. 4x^2 - 4x^2 + 1\nd. 1 - 10x + 25x^2' }],
+    }],
+    markModified() {},
+  };
+
+  const pasted = conversation.history[0].parts[0].text;
+  setTextProblemContext(conversation, pasted);
+  assert.equal(conversation.problemContext.sourceText, pasted);
+  assert.equal(conversation.problemContext.sourceImage, undefined);
+  assert.equal(conversation.problemContext.activeQuestionId, 'main');
+
+  conversation.problemContext = {
+    sourceText: 'Hằng đẳng thức là gì?',
+    questions: [{ id: 'main', prompt: 'Hằng đẳng thức là gì?' }],
+    activeQuestionId: 'main',
+  };
+  const context = await ensureProblemContext(conversation, 'vi');
+  assert.equal(context.sourceText, pasted);
+  assert.equal(context.activeQuestionId, 'main');
+});
