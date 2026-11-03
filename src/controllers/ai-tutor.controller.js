@@ -187,10 +187,7 @@ const createLesson = async (req, res) => {
       archived: { $ne: true },
     };
     if (regenerate) {
-      await AiTutorLesson.updateMany(
-        { ...lessonQuery, completed: false },
-        { $set: { archived: true } },
-      );
+      await AiTutorLesson.updateMany(lessonQuery, { $set: { archived: true } });
     }
     const priorLessons = await AiTutorLesson.find({
       user: req.user._id,
@@ -199,12 +196,13 @@ const createLesson = async (req, res) => {
       sourceText,
     }).select('questions.prompt').lean();
     const previousQuestions = [...new Set(priorLessons.flatMap(lesson => (lesson.questions || []).map(question => question.prompt)).filter(Boolean))];
-    const existing = regenerate ? null : await AiTutorLesson.findOne({ ...lessonQuery, completed: false }).sort({ updatedAt: -1 });
-    // Reuse only lessons from the current generation; older lessons must be regenerated.
+    const existing = regenerate ? null : await AiTutorLesson.findOne(lessonQuery).sort({ updatedAt: -1 });
+    // Reuse the current set, including a finished one. A wrong answer or another
+    // chat turn must not start a second lesson. Only regenerate replaces it.
     if (isUsableLesson(existing)) {
       let changed = false;
-      if (!existing.attempts?.length && existing.currentStepIndex !== -1) { existing.currentStepIndex = -1; changed = true; }
-      if (existing.currentQuestionIndex < 0 || existing.currentQuestionIndex > 4) { existing.currentQuestionIndex = 0; changed = true; }
+      if (!existing.completed && !existing.attempts?.length && existing.currentStepIndex !== -1) { existing.currentStepIndex = -1; changed = true; }
+      if (!existing.completed && (existing.currentQuestionIndex < 0 || existing.currentQuestionIndex > 4)) { existing.currentQuestionIndex = 0; changed = true; }
       if (changed) await existing.save();
       return res.json({ lesson: publicLesson(existing) });
     }
