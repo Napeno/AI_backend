@@ -1,17 +1,12 @@
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
+const { parseModelJson } = require('./model-json');
 const {
   ensureProblemContext,
   getActiveQuestion,
   toPublicProblemContext,
 } = require('./problem-context.service');
 
-const parseJson = (text) => {
-  const value = String(text || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-  const first = value.indexOf('{');
-  const last = value.lastIndexOf('}');
-  if (first === -1 || last < first) throw new Error('Evaluator did not return JSON');
-  return JSON.parse(value.slice(first, last + 1));
-};
+const parseJson = (text) => parseModelJson(text, 'Evaluator did not return JSON');
 
 const appendImagePart = async (parts, url, label) => {
   if (!url) return;

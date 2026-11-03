@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { fallbackQuestion, sanitizeQuestion, fallbackLesson, sanitizeLesson } = require('../src/services/ai-tutor.service');
+const { fallbackQuestion, sanitizeQuestion, fallbackLesson, sanitizeLesson, isDuplicateTutorQuestion, questionFingerprint } = require('../src/services/ai-tutor.service');
 
 test('keeps AI tutor questions to four safe choices and four steps', () => {
   const question = sanitizeQuestion({
@@ -352,4 +352,18 @@ test('restores five chemistry questions for a balancing exercise', () => {
   assert.equal(lesson.questions.length, 5);
   assert.match(lesson.questions[3].options[0].text, /2H₂ \+ O₂ → 2H₂O/);
   assert.ok(lesson.questions.every(question => !question.title.includes('Làm rõ yêu cầu')));
+});
+
+test('rejects five reworded copies of the same equation or reaction', () => {
+  const equations = [1, 2, 3, 4, 5].map(number => `Câu ${number}: Giải phương trình 3x + 4 = 19.`);
+  const reactions = [1, 2, 3, 4, 5].map(number => `Câu ${number}: Cho Al + HCl → AlCl3 + H2. Hãy chọn hệ số của HCl.`);
+  const sameReactionDifferentCoefficients = 'Cân bằng 2Al + 6HCl → 2AlCl3 + 3H2.';
+
+  assert.equal(questionFingerprint(equations[0]), questionFingerprint(equations[4]));
+  assert.equal(isDuplicateTutorQuestion(equations[4], equations.slice(0, 4)), true);
+  assert.equal(isDuplicateTutorQuestion('Câu 2: Giải phương trình 5x + 1 = 16.', equations), false);
+  assert.equal(questionFingerprint(reactions[0]), questionFingerprint(reactions[4]));
+  assert.equal(questionFingerprint(reactions[0]), questionFingerprint(sameReactionDifferentCoefficients));
+  assert.equal(isDuplicateTutorQuestion(reactions[2], reactions.slice(0, 2)), true);
+  assert.equal(isDuplicateTutorQuestion('Câu 2: Cho Fe + HCl → FeCl2 + H2. Hệ số của HCl là bao nhiêu?', reactions), false);
 });

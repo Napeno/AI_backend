@@ -115,6 +115,14 @@ test('accepts Gemini JSON containing raw LaTex backslashes', () => {
   assert.equal(parsed.nextQuestion, 'Thử khai triển biểu thức.');
 });
 
+test('keeps LaTeX commands that share a letter with JSON escapes', () => {
+  const rawJson = `{"prompt":"Al + HCl ${'\\'}rightarrow AlCl_3 va ${'\\'}frac{1}{2}","note":"dong 1\\ndong 2"}`;
+  const parsed = parseJson(rawJson);
+
+  assert.equal(parsed.prompt, 'Al + HCl \\rightarrow AlCl_3 va \\frac{1}{2}');
+  assert.equal(parsed.note, 'dong 1\ndong 2');
+});
+
 test('uses safe pagination defaults and limits', () => {
   assert.equal(parsePagination('bad', 6, 24), 6);
   assert.equal(parsePagination('30', 6, 24), 24);

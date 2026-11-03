@@ -1,11 +1,7 @@
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
+const { parseModelJson } = require('./model-json');
 
-const parseJson = (text) => {
-  const cleaned = String(text || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-  const firstBrace = cleaned.indexOf('{');
-  const lastBrace = cleaned.lastIndexOf('}');
-  return JSON.parse(firstBrace === -1 ? cleaned : cleaned.slice(firstBrace, lastBrace + 1));
-};
+const parseJson = (text) => parseModelJson(text);
 
 const getQuestionIdFromText = (text = '') => String(text).toLowerCase().match(/(?:câu|cau|question)\s*([a-z0-9]+)/i)?.[1] || null;
 

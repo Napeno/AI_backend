@@ -3,6 +3,7 @@ const Conversation = require('../models/conversation.model');
 const PracticeItem = require('../models/practice-item.model');
 const AiTutorLesson = require('../models/ai-tutor-question.model');
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
+const { parseModelJson } = require('./model-json');
 
 const SUBJECT_LABELS = {
   mathematics: 'Toán',
@@ -118,7 +119,7 @@ Phát hiện của học sinh: ${correction}`;
       ? 'Chỉ trả JSON hợp lệ, không markdown.'
       : 'Return valid JSON only, no markdown.');
     const text = extractResponseText(await makeRequestWithRetry(() => chat.sendMessage(prompt)));
-    const parsed = JSON.parse(String(text).replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim());
+    const parsed = parseModelJson(text);
     return parsed?.valid === true;
   } catch (error) {
     console.error('AI correction validation failed:', error.message);
@@ -289,10 +290,7 @@ const getFallbackChallenges = goal => [
 ];
 
 const parseChallenges = text => {
-  const cleaned = String(text || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-  const firstBracket = cleaned.indexOf('[');
-  const lastBracket = cleaned.lastIndexOf(']');
-  const parsed = JSON.parse(firstBracket === -1 ? cleaned : cleaned.slice(firstBracket, lastBracket + 1));
+  const parsed = parseModelJson(text, 'Invalid challenges schema');
   const challenges = Array.isArray(parsed) ? parsed : parsed.challenges;
   if (!Array.isArray(challenges)) throw new Error('Invalid challenges schema');
   return challenges.slice(0, 3).map((challenge, index) => {

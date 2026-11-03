@@ -1,13 +1,8 @@
 const crypto = require('node:crypto');
 const { startChat, makeRequestWithRetry, extractResponseText } = require('./gemini.service');
+const { formulaRule, parseModelJson } = require('./model-json');
 
-const parseJson = text => {
-  const value = String(text || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-  const first = value.indexOf('{');
-  const last = value.lastIndexOf('}');
-  if (first < 0 || last < first) throw new Error('AI tutor returned invalid JSON');
-  return JSON.parse(value.slice(first, last + 1));
-};
+const parseJson = text => parseModelJson(text, 'AI tutor returned invalid JSON');
 
 const text = (value, fallback, max = 500) => String(value || fallback).replace(/<[^>]*>/g, '').trim().slice(0, max) || fallback;
 const id = value => String(value || '').toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 32);
@@ -386,6 +381,47 @@ const sourceAnchor = (sourceText, language = 'vi') => {
 };
 
 const normalizeForMatch = value => String(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+const SUBSCRIPT_DIGITS = { '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9', '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' };
+const normalizedTutorText = value => normalizeForMatch(String(value || '')
+  .replace(/^\s*(?:câu|cau|bài|bai|question)\s*\d+\s*[:.)\-–—]*\s*/i, '')
+  .replace(/\(\s*(?:câu|cau|bài|bai|question)\s*\d+\s*\)/gi, ' ')
+  .replace(/[?!.:;,"“”'’()[\]{}]/g, ' '));
+const reactionSkeleton = value => {
+  const normalized = String(value || '')
+    .replace(/\r(?=ightarrow)/gi, '')
+    .replace(/\\(?:rightarrow|to)\b|ightarrow|->|=>/gi, '→')
+    .replace(/[₀-₉⁰¹²³⁴⁵⁶⁷⁸⁹]/g, digit => SUBSCRIPT_DIGITS[digit] || digit)
+    .replace(/[$_{}\\]/g, '');
+  const term = '(?:\\d+\\s*)?[A-Za-z][A-Za-z0-9]*';
+  const match = normalized.match(new RegExp(`${term}(?:\\s*\\+\\s*${term})*\\s*→\\s*${term}(?:\\s*\\+\\s*${term})*`));
+  if (!match) return '';
+  const stripCoefficient = termText => termText.replace(/^\d+/, '');
+  return match[0]
+    .split('→')
+    .map(side => side.split('+').map(part => stripCoefficient(part.replace(/\s+/g, ''))).filter(Boolean).join('+'))
+    .join('→')
+    .toLowerCase();
+};
+const arithmeticSignature = value => {
+  const match = String(value || '').match(/(-?\d+(?:[.,]\d+)?)\s*([+\-×*÷/])\s*(-?\d+(?:[.,]\d+)?)/);
+  if (!match) return '';
+  return `${match[1].replace(',', '.')}${match[2]}${match[3].replace(',', '.')}`;
+};
+const questionFingerprint = value => {
+  const linear = linearEquationData(value);
+  if (linear?.expression) return `linear:${linear.expression.replace(/\s+/g, '')}`;
+  const reaction = reactionSkeleton(value);
+  if (reaction) return `reaction:${reaction}`;
+  const arithmetic = arithmeticSignature(value);
+  if (arithmetic) return `arithmetic:${arithmetic}`;
+  const textKey = normalizedTutorText(value);
+  return textKey ? `text:${textKey}` : '';
+};
+const isDuplicateTutorQuestion = (prompt, previousValues = []) => {
+  const fingerprint = questionFingerprint(prompt);
+  if (!fingerprint) return false;
+  return previousValues.some(previous => previous && questionFingerprint(previous) === fingerprint);
+};
 const includesSourceAnchor = (value, sourceText) => {
   const source = normalizeForMatch(sourceText);
   const content = normalizeForMatch(value);
@@ -407,6 +443,7 @@ const isRelatedToSource = (value, sourceText) => {
   if (linearEquationData(source) && /\bx\b|phương trình|hệ số|chuyển|chia|equation|coefficient|divide/i.test(content)) return true;
   if (algebraData(source) && /\([^)]*\)\s*(?:\^\s*2|²)/i.test(content)) return true;
   if (chemistryEquation(source) && /(?:→|->|=>)/.test(content)) return true;
+  if (/(?:→|->|=>|\\rightarrow|ightarrow)/i.test(source) && /(?:→|->|=>|\\rightarrow|ightarrow)/i.test(content)) return true;
   if (isCircuitSource(source) && /\b(?:u|i|r)\d+\b|mạch điện|điện trở/i.test(content)) return true;
   const sourceNumbers = source.match(/\d+(?:[.,/]\d+)?/g) || [];
   const matchingNumbers = sourceNumbers.filter(number => content.includes(number)).length;
@@ -646,6 +683,7 @@ Chỉ trả JSON hợp lệ theo đúng schema này, không markdown: {"question
       'Khi có bài điền, blanks là object {id,label,expectedTokenId}; label nói rõ cần điền gì; expectedTokenId trỏ chính xác đến một token trong tokens; tokens là object {id,label,type}.',
       'easierExample bắt buộc là một câu hỏi dễ hơn, độc lập, có đủ dữ kiện; answer phải đúng và hint chỉ hướng dẫn. Không tạo câu hỏi phụ, visual, SVG hoặc hình ảnh.',
       'Câu hỏi phải cùng dạng bài, bám sát đề gốc, khác nhau và không lặp các câu cũ.',
+      formulaRule(context.language),
       'Chỉ trả JSON hợp lệ, không markdown.',
       `Ngôn ngữ: ${context.language || 'vi'}. Cấp học: ${context.educationLevel || 'middle'}. Môn: ${context.course || context.subjectArea || ''}.`,
       `Bài gốc: ${context.sourceText || '(xem ảnh đính kèm)'}. Biểu thức gốc: ${context.sourceExpression || '(không có)'}.`,
@@ -680,19 +718,23 @@ const generateTutorQuestion = async (context = {}, index = 0) => {
   for (let attempt = 0; attempt < 6; attempt += 1) {
     try {
       const previousQuestions = (context.previousQuestions || []).filter(Boolean).join('\n- ');
+      const usedFingerprints = [...new Set((context.previousQuestions || []).map(questionFingerprint).filter(Boolean))].join('; ');
+      const variantId = `${context.generationSeed || Date.now()}-${index}-${attempt}`;
       const prompt = [
-        `Tạo đúng 1 câu hỏi AI Tutor mới cho bài gốc. Đây là câu ${index + 1}/5, biến thể ${attempt + 1}, mã biến thể ${context.generationSeed || `${Date.now()}-${index}-${attempt}`}; không tạo mảng questions và không tạo thêm câu nào khác.`,
+        `Tạo đúng 1 câu hỏi AI Tutor mới cho bài gốc. Đây là câu ${index + 1}/5, biến thể ${attempt + 1}, mã biến thể ${variantId}; không tạo mảng questions và không tạo thêm câu nào khác.`,
         'Prompt phải là một câu hỏi hoàn chỉnh, có đủ dữ kiện và yêu cầu cụ thể; không viết câu chung chung.',
-        'Giữ nguyên dạng bài, phép toán, biến và phương pháp. Nếu bài gốc là phép tính số học không có biến thì không thêm biến x hoặc đổi thành phương trình. Nếu là phương trình thì bắt buộc đổi ít nhất một hệ số/số liệu để tạo bài mới, khác số liệu và không lặp câu cũ.',
+        'Giữ nguyên dạng bài, phép toán, biến và phương pháp. Nếu bài gốc là phép tính số học không có biến thì không thêm biến x hoặc đổi thành phương trình. Nếu là phương trình hoặc phản ứng hóa học thì bắt buộc đổi chất tham gia hoặc số liệu để tạo bài mới. Không được chỉ thêm "Câu N", đổi vài từ, hoặc giữ cùng một phản ứng hay phương trình.',
         'Câu hỏi có title, prompt, interactionType, đúng 4 options, correctOptionId là số 0-3 và đúng 2 tutorSteps.',
         'Mỗi tutorStep bắt buộc có title, explanation, analysis, easierExample và hint. easierExample là một câu hỏi dễ hơn nhưng độc lập, có đủ dữ kiện và yêu cầu rõ ràng; answer phải đúng với prompt; hint chỉ hướng dẫn ngắn, không chứa câu hỏi, dấu ? hoặc ____.',
       'Nếu có bài điền, blanks là object {id,label,expectedTokenId}, tokens là object {id,label,type}; expectedTokenId phải trỏ đúng token. Nếu chỉ hướng dẫn thì blanks và tokens là [].',
         'Không tạo visual, SVG hoặc hình ảnh. Chỉ trả JSON hợp lệ, không markdown theo dạng: {"question":{"title":"...","prompt":"...","interactionType":"...","options":["...","...","...","..."],"correctOptionId":0,"tutorSteps":[{"title":"...","explanation":"...","analysis":"...","easierExample":{"prompt":"Tính 10 - 3 = ?","answer":"7","hint":"Lấy 10 trừ 3."},"hint":"...","blanks":[],"tokens":[]},{"title":"...","explanation":"...","analysis":"...","easierExample":{"prompt":"Tính 6 - 2 = ?","answer":"4","hint":"Lấy 6 trừ 2."},"hint":"...","blanks":[],"tokens":[]}]}}',
+        formulaRule(context.language),
         `Ngôn ngữ: ${context.language || 'vi'}. Cấp học: ${context.educationLevel || 'middle'}. Môn: ${context.course || context.subjectArea || ''}.`,
         `Bài gốc: ${context.sourceText || '(xem ảnh đính kèm)'}. Biểu thức gốc: ${context.sourceExpression || '(không có)'}.`,
         `Ngữ cảnh cuộc trò chuyện hiện tại: ${context.conversationContext || '(không có)'}.`,
-        `Các câu không được lặp: ${previousQuestions || '(không có)'}.`,
-        rejectedPrompt ? `Prompt vừa bị từ chối vì bị trùng, tuyệt đối không được dùng lại. Hãy đổi dữ kiện hoặc cách hỏi, không được copy: ${rejectedPrompt}` : '',
+        `Các câu không được lặp, kể cả khi viết khác lời: ${previousQuestions || '(không có)'}.`,
+        `Vân tay đã dùng, không được tạo lại: ${usedFingerprints || '(không có)'}.`,
+        rejectedPrompt ? `Prompt vừa bị từ chối vì bị trùng, tuyệt đối không được dùng lại. Hãy đổi chất tham gia, số liệu hoặc đại lượng được hỏi, không được copy: ${rejectedPrompt}` : '',
         lastError ? `Lần trước output không hợp lệ vì: ${lastError}. Hãy sửa đúng lỗi đó.` : '',
       ].filter(Boolean).join('\n');
       const chat = startChat([], 'Bạn là AI Tutor. Chỉ trả JSON hợp lệ. Bắt buộc tự tạo câu hỏi và easierExample; không dùng fallback.');
@@ -703,15 +745,18 @@ const generateTutorQuestion = async (context = {}, index = 0) => {
       }
       const raw = parseJson(extractResponseText(await makeRequestWithRetry(() => chat.sendMessage(parts))));
       const question = normalizeQuestion(raw?.question || raw, index, context.sourceText, context.language, context, true);
-      const previous = new Set((context.previousQuestions || []).map(normalizeForMatch));
-      if (previous.has(normalizeForMatch(question.prompt))) {
+      const seen = [...(context.previousQuestions || []), context.sourceExpression, context.sourceText];
+      if (isDuplicateTutorQuestion(question.prompt, seen)) {
         rejectedPrompt = question.prompt;
         throw new Error('Gemini returned a duplicated question');
       }
       const originalEquation = linearEquationData(context.sourceExpression || context.sourceText);
       if (originalEquation?.kind === 'linear') {
         const generatedEquation = linearEquationData(question.prompt);
-        if (!generatedEquation || generatedEquation.expression === originalEquation.expression) throw new Error('Gemini returned the original equation instead of a similar one');
+        if (!generatedEquation || generatedEquation.expression === originalEquation.expression) {
+          rejectedPrompt = question.prompt;
+          throw new Error('Gemini returned the original equation instead of a similar one');
+        }
       }
       return { ...question, id: `q${index + 1}` };
     } catch (error) {
@@ -758,4 +803,4 @@ const generateQuestion = async ({ subject = 'Toán', topic = 'hằng đẳng th�
   return { title: question.title, prompt: question.prompt, diagram: { type: 'none' }, options: question.options, correctId: question.correctOptionId, steps: question.tutorSteps.map(step => ({ title: step.title, content: step.explanation })), hint: 'Hãy đọc dữ kiện và thử từng bước.' };
 };
 
-module.exports = { fallbackLesson, sanitizeLesson, generateLesson, generateTutorQuestion, makeLessonId, fallbackQuestion, sanitizeQuestion, generateQuestion, makeQuestionId: makeLessonId };
+module.exports = { fallbackLesson, sanitizeLesson, generateLesson, generateTutorQuestion, makeLessonId, fallbackQuestion, sanitizeQuestion, generateQuestion, makeQuestionId: makeLessonId, questionFingerprint, isDuplicateTutorQuestion };

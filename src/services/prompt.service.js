@@ -1,6 +1,7 @@
 // Import language files
 const enPrompts = require('../locales/en.json');
 const viPrompts = require('../locales/vi.json');
+const { formulaRule } = require('./model-json');
 
 // Available subject areas for all levels
 const AVAILABLE_SUBJECTS = [
@@ -112,7 +113,8 @@ const getSystemInstruction = (language = 'en', educationLevel = 'middle', subjec
 
 const buildSystemInstruction = (language = 'en', educationLevel, subjectArea, course = null) => {
   const instruction = getSystemInstruction(language, educationLevel, subjectArea, course);
-  if (educationLevel !== 'middle') return instruction;
+  const formula = formulaRule(language);
+  if (educationLevel !== 'middle') return `${instruction}\n\n${formula}`;
 
   const isMathematics = subjectArea === 'mathematics' || course === 'mathematics';
   const directRequestRule = isMathematics
@@ -123,7 +125,7 @@ const buildSystemInstruction = (language = 'en', educationLevel, subjectArea, co
 
   return `${instruction}\n\n${language === 'vi'
     ? 'QUY TẮC DÀNH CHO HỌC SINH CẤP 2: Trả lời ngắn, rõ, dùng từ dễ hiểu. Lượt chat thường tối đa 6 câu hoặc 8 dòng; lượt gợi ý tối đa 4 câu và chỉ nêu 1 bước tiếp theo; lượt kiểm tra chỉ nhận xét đúng/sai và 1 cách sửa. Không chào hỏi dài, không lặp lại đề, không tự đưa ví dụ liên môn hoặc kiến thức ngoài câu hỏi. Chỉ liên môn khi học sinh yêu cầu. Nếu là bài Toán, bám đúng biểu thức và khóa học đã chọn.'
-    : 'MIDDLE-SCHOOL RULES: Be short, clear, and easy to understand. A normal chat turn is at most 6 sentences or 8 lines; a hint is at most 4 sentences and gives only 1 next step; answer checks state correct/incorrect and 1 fix. Do not add long greetings, repeat the problem, or introduce unrelated subjects or cross-subject examples unless asked. For math, stay with the exact expression and selected course.'}${directRequestRule}`;
+    : 'MIDDLE-SCHOOL RULES: Be short, clear, and easy to understand. A normal chat turn is at most 6 sentences or 8 lines; a hint is at most 4 sentences and gives only 1 next step; answer checks state correct/incorrect and 1 fix. Do not add long greetings, repeat the problem, or introduce unrelated subjects or cross-subject examples unless asked. For math, stay with the exact expression and selected course.'}${directRequestRule}\n\n${formula}`;
 };
 
 const buildChatPrompt = (message, language = 'en', educationLevel, subjectArea, course = null) => {

@@ -1,5 +1,6 @@
 const { makeRequestWithRetry, startChat, extractResponseText } = require('./gemini.service');
 const PracticeItem = require('../models/practice-item.model');
+const { formulaRule, parseModelJson } = require('./model-json');
 
 const REVIEW_DAYS = [1, 3, 7];
 const MAX_TURNS_IN_PROMPT = 6;
@@ -65,14 +66,7 @@ const capturePracticeItem = async ({ userId, conversation, blocker, feedback = '
   return item;
 };
 
-const parseJson = (text) => {
-  const cleaned = String(text || '').replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-  const firstBrace = cleaned.indexOf('{');
-  const lastBrace = cleaned.lastIndexOf('}');
-  const json = firstBrace === -1 ? cleaned : cleaned.slice(firstBrace, lastBrace + 1);
-  // Gemini may return LaTex such as \(x^2\) with raw backslashes, which JSON rejects.
-  return JSON.parse(json.replace(/\\(?!["\\/bfnrtu])/g, '\\\\'));
-};
+const parseJson = (text) => parseModelJson(text);
 
 const buildPracticePrompt = (item, language = 'en', questionType = 'long_answer', repairError = '') => {
   const languageInstruction = language === 'vi' ? 'Trả lời bằng tiếng Việt.' : 'Respond in English.';
@@ -111,7 +105,7 @@ Bài gốc chỉ để nhận biết kỹ năng: ${item.sourceQuestion}
 Phản hồi trước đó: ${item.sourceFeedback || 'Không có'}
 
 Trả JSON hợp lệ với trường questionType chính xác là "${questionType}" và các trường bắt buộc prompt, hint, answerGuide; ${format.schema}${questionType === 'multiple_choice' ? ', options, correctOptionId' : questionType === 'true_false' ? ', correctAnswer' : ''}.
-prompt là bài mới; hint gợi mở nhưng không giải hộ; answerGuide chỉ để hệ thống chấm. Nếu có công thức toán, luôn đặt biểu thức trong \\(...\\) để giao diện hiển thị đúng.${repairError ? `
+prompt là bài mới; hint gợi mở nhưng không giải hộ; answerGuide chỉ để hệ thống chấm. ${formulaRule(language)}${repairError ? `
 
 LỖI Ở LẦN TRƯỚC: ${repairError}. Hãy tạo lại toàn bộ JSON và sửa đúng lỗi đó.` : ''}`;
 };
@@ -210,7 +204,7 @@ ${formatRecentTurns(item, variant) || '(chưa có)'}
 ${action === 'attempt' ? `Bước học sinh vừa gửi: ${answer}` : ''}
 
 Schema: {"isCorrect":true|false|null,"isMeaningfulAttempt":true|false,"feedback":"...","hint":"...","nextQuestion":"..."}.
-Với hint hoặc solution, isCorrect là null. Với attempt, feedback phải nhắc đến bước hoặc phép tính học sinh vừa gửi; nextQuestion là bắt buộc và chỉ yêu cầu đúng một bước tiếp theo phù hợp với phản hồi đó. Không dùng các câu mẫu như “hãy viết một công thức” nếu không giải thích được công thức nào liên quan. Nếu có công thức toán, luôn đặt biểu thức trong \\(...\\) để giao diện hiển thị đúng.`;
+Với hint hoặc solution, isCorrect là null. Với attempt, feedback phải nhắc đến bước hoặc phép tính học sinh vừa gửi; nextQuestion là bắt buộc và chỉ yêu cầu đúng một bước tiếp theo phù hợp với phản hồi đó. Không dùng các câu mẫu như “hãy viết một công thức” nếu không giải thích được công thức nào liên quan. ${formulaRule(language)}`;
 
   let repairError = '';
   while (true) {

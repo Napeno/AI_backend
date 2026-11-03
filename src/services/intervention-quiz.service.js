@@ -1,4 +1,5 @@
 const { makeRequestWithRetry, startChat, extractResponseText } = require('./gemini.service');
+const { formulaRule, parseModelJson } = require('./model-json');
 const InterventionService = require('./intervention.service');
 
 const OPTION_IDS = ['A', 'B', 'C', 'D'];
@@ -13,19 +14,7 @@ const stripCodeFence = (text) => String(text || '')
   .replace(/\s*```$/i, '')
   .trim();
 
-const safeJsonParse = (text) => {
-  const cleaned = stripCodeFence(text);
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      return JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
-    }
-    throw new Error('Invalid mini quiz JSON');
-  }
-};
+const safeJsonParse = (text) => parseModelJson(stripCodeFence(text), 'Invalid mini quiz JSON');
 
 const normalizeMiniQuiz = (rawQuiz, language = 'en', previousQuiz = null) => {
   const question = String(rawQuiz?.question || '').trim();
@@ -164,7 +153,7 @@ Yêu cầu:
 - Không giải bài chính.
 - Chỉ dùng kiến thức môn ${subject}; không đưa ví dụ liên môn hoặc đổi sang chủ đề khác.
 - Câu hỏi phải bám trực tiếp vào đề gốc bên dưới, không hỏi kiến thức chung thay thế cho đề.
-- Với biểu thức Toán, bọc biểu thức bằng $...$ và dùng cú pháp đơn giản như ^, _, ngoặc; không để dấu $ bị thiếu cặp.
+- ${formulaRule('vi')}
 - Trả về JSON hợp lệ, không markdown, không giải thích ngoài JSON.
 
 Đề gốc:
@@ -189,7 +178,7 @@ Requirements:
 - Do not solve the main problem.
 - Use only the selected subject (${subject}); do not introduce cross-subject examples or a different topic.
 - The question must directly use the original problem below, not replace it with a generic knowledge question.
-- For math, wrap each expression in $...$ and use simple ^, _, and parentheses syntax; never leave an unmatched $.
+- ${formulaRule('en')}
 - Return valid JSON only. No markdown.
 
 Original problem:
