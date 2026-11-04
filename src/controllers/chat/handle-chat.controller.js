@@ -2,6 +2,7 @@ const Conversation = require('../../models/conversation.model');
 const chatService = require('../../services/chat.service');
 const InterventionService = require('../../services/intervention.service');
 const { setTextProblemContext, toPublicProblemContext } = require('../../services/problem-context.service');
+const { alignConversationSubject } = require('../../services/subject-detect.service');
 const { getMessages, checkIfInternalPrompt } = require('./utils');
 
 const handleChat = async (req, res) => {
@@ -31,7 +32,7 @@ const handleChat = async (req, res) => {
         history: [],
         educationLevel: educationLevel || 'middle',
         subjectArea: subjectArea || 'natural_sciences',
-        course: course || 'mathematics'
+        course: course || subjectArea || 'natural_sciences',
       });
       console.log('Created new conversation for user:', req.user._id, 'sessionId:', sessionId);
     } else {
@@ -46,6 +47,7 @@ const handleChat = async (req, res) => {
         parts: [{ text: message }]
       });
       setTextProblemContext(conversation, message);
+      alignConversationSubject(conversation, message);
       console.log('Added user message to history');
     }
 

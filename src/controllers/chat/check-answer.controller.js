@@ -8,6 +8,7 @@ const InterventionService = require('../../services/intervention.service');
 const { capturePracticeItem } = require('../../services/practice.service');
 const { evaluateAnswer } = require('../../services/answer-evaluator.service');
 const { toPublicProblemContext } = require('../../services/problem-context.service');
+const { alignConversationSubject } = require('../../services/subject-detect.service');
 const { getMessages } = require('./utils');
 const ThinkerService = require('../../services/thinker.service');
 
@@ -37,6 +38,12 @@ const checkAnswer = async (req, res, imageData = null) => {
 
   const conversation = await Conversation.findOne({ user: req.user._id, sessionId });
   if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+  alignConversationSubject(
+    conversation,
+    conversation.problemContext?.sourceText
+      || [...conversation.history].reverse().find(entry => entry.role === 'user')?.parts?.map(part => part.text || '').join('\n')
+      || '',
+  );
   const latestModelMessage = [...conversation.history].reverse().find(message => message.role === 'model');
   const followUpQuestion = latestModelMessage?.evaluationStatus
     ? null

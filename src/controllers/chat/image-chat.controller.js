@@ -3,6 +3,7 @@ const chatService = require('../../services/chat.service');
 const ImageUploadService = require('../../services/image-upload.service');
 const InterventionService = require('../../services/intervention.service');
 const { setImageProblemContext, toPublicProblemContext } = require('../../services/problem-context.service');
+const { alignConversationSubject } = require('../../services/subject-detect.service');
 const { getMessages, checkIfInternalPrompt } = require('./utils');
 
 const shouldUpdateProblemContext = (imagePurpose) => imagePurpose !== 'student_work';
@@ -50,7 +51,7 @@ const handleImageChat = async (req, res) => {
         history: [],
         educationLevel: educationLevel || 'middle',
         subjectArea: subjectArea || 'natural_sciences',
-        course: course || 'mathematics'
+        course: course || subjectArea || 'natural_sciences',
       });
       console.log('Created new conversation for user:', req.user._id, 'sessionId:', sessionId);
     } else {
@@ -103,6 +104,7 @@ const handleImageChat = async (req, res) => {
       if (imageData && shouldUpdateProblemContext(imagePurpose)) {
         await setImageProblemContext(conversation, { sourceText: finalMessage, image: imageData, language });
       }
+      alignConversationSubject(conversation, finalMessage || conversation.problemContext?.sourceText || '');
       console.log('Added user message with image to history');
     }
 

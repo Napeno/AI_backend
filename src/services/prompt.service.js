@@ -165,15 +165,21 @@ const buildFullAnswerPrompt = (language = 'en', educationLevel, subjectArea, cou
 };
 
 const buildCurrentQuestionReminder = (history = [], language = 'en', course = null, fullAnswer = false) => {
+  const { looksLikeChemistry } = require('./subject-detect.service');
   const currentQuestion = [...history].reverse()
     .find(message => message.role === 'user')?.parts?.map(part => part.text || '').join('\n').trim();
   if (!currentQuestion) return '';
 
-  const subjectReminder = course === 'mathematics'
+  // Never force a math lock onto chemistry equations pasted into a math-tagged chat.
+  const subjectReminder = course === 'mathematics' && !looksLikeChemistry(currentQuestion)
     ? language === 'vi'
       ? ` Đây là câu hỏi Toán; ${fullAnswer ? 'chỉ dùng kiến thức Toán' : 'tuyệt đối không chuyển sang Vật lý, Hóa học hoặc Sinh học'}.`
       : ` This is a mathematics question; ${fullAnswer ? 'use mathematics only' : 'do not switch to physics, chemistry, or biology'}.`
-    : '';
+    : looksLikeChemistry(currentQuestion)
+      ? language === 'vi'
+        ? ' Đây là câu hỏi Hóa học; hãy dùng kiến thức Hóa học, không biến công thức hóa học thành biểu thức đại số.'
+        : ' This is a chemistry question; use chemistry knowledge and do not treat chemical formulas as algebra.'
+      : '';
   const label = fullAnswer
     ? (language === 'vi' ? 'CÂU HỎI HIỆN TẠI CẦN TRẢ LỜI' : 'CURRENT QUESTION TO ANSWER')
     : (language === 'vi' ? 'CÂU HỎI HIỆN TẠI CẦN BÁM SÁT' : 'CURRENT QUESTION TO STAY WITH');

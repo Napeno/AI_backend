@@ -3,6 +3,7 @@ const chatService = require('../../services/chat.service');
 const InterventionService = require('../../services/intervention.service');
 const InterventionQuizService = require('../../services/intervention-quiz.service');
 const { capturePracticeItem } = require('../../services/practice.service');
+const { alignConversationSubject } = require('../../services/subject-detect.service');
 const ThinkerService = require('../../services/thinker.service');
 
 const getErrorDetails = (error) => ({
@@ -26,6 +27,12 @@ const continueChat = async (req, res) => {
     if (!conversation || conversation.history.length === 0) {
       return res.status(404).json({ error: "Conversation not found" });
     }
+    alignConversationSubject(
+      conversation,
+      conversation.problemContext?.sourceText
+        || [...conversation.history].reverse().find(entry => entry.role === 'user')?.parts?.map(part => part.text || '').join('\n')
+        || '',
+    );
 
     const isSupportChoice = gateResponse?.type === 'support_choice';
     const gateEvaluation = isSupportChoice

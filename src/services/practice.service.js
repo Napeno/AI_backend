@@ -1,6 +1,12 @@
 const { makeRequestWithRetry, startChat, extractResponseText } = require('./gemini.service');
 const PracticeItem = require('../models/practice-item.model');
 const { formulaRule, parseModelJson } = require('./model-json');
+const {
+  alignConversationSubject,
+  inferSubjectFromContent,
+  looksLikeChemistry,
+  looksLikePureMathPrompt,
+} = require('./subject-detect.service');
 
 const REVIEW_DAYS = [1, 3, 7];
 const MAX_TURNS_IN_PROMPT = 6;
@@ -43,9 +49,26 @@ const getPracticeSourceQuestion = (conversation = {}) => {
   return (selectedQuestion || getLastUserQuestion(conversation.history)).slice(0, 1200);
 };
 
+const resolvePracticeSubject = (conversation = {}, sourceQuestion = '') => {
+  alignConversationSubject(conversation, sourceQuestion);
+  const inferred = inferSubjectFromContent(sourceQuestion, conversation.educationLevel || 'middle');
+  return {
+    subjectArea: inferred?.subjectArea || conversation.subjectArea || 'natural_sciences',
+    course: inferred?.course || conversation.course || conversation.subjectArea || '',
+  };
+};
+
 const capturePracticeItem = async ({ userId, conversation, blocker, feedback = '', language = 'en' }) => {
   const sourceQuestion = getPracticeSourceQuestion(conversation);
   if (!sourceQuestion) return null;
+  const subject = resolvePracticeSubject(conversation, sourceQuestion);
+  if (conversation.subjectArea !== subject.subjectArea || conversation.course !== subject.course) {
+    conversation.subjectArea = subject.subjectArea;
+    conversation.course = subject.course;
+    if (typeof conversation.save === 'function') {
+      try { await conversation.save(); } catch (_) { /* capture must not fail the chat turn */ }
+    }
+  }
 
   const item = await PracticeItem.findOneAndUpdate(
     { user: userId, sessionId: conversation.sessionId, sourceQuestion, blocker },
@@ -53,7 +76,7 @@ const capturePracticeItem = async ({ userId, conversation, blocker, feedback = '
       $set: {
         conversationTitle: getConversationTitle(conversation),
         educationLevel: conversation.educationLevel,
-        subjectArea: conversation.subjectArea,
+        subjectArea: subject.subjectArea,
         sourceFeedback: String(feedback || '').slice(0, 1200),
         status: 'new',
         nextReviewAt: new Date(),
@@ -92,15 +115,18 @@ const buildPracticePrompt = (item, language = 'en', questionType = 'long_answer'
   const previousVariants = (item.practice?.variants || [])
     .map(variant => `${variant.questionType}: ${variant.prompt}`)
     .join('\n');
+  const subjectLabel = item.course || item.subjectArea || 'natural_sciences';
   return `${languageInstruction}
 Tạo một bài ôn mới mất không quá 2 phút, cùng đúng kỹ năng cần luyện nhưng là bài MỚI.
 Đổi dữ kiện, số liệu, bối cảnh hoặc cách diễn đạt để không sao chép câu hay đáp án của bài gốc. Không dùng lại nguyên câu dài từ bài gốc, không hỏi lại bài gốc và không tiết lộ đáp án bài gốc.
+BẮT BUỘC giữ đúng môn học "${subjectLabel}". Nếu bài gốc là hóa học thì chỉ tạo câu hóa học; tuyệt đối không tạo câu đại số, biểu thức, thay số vào x, hay toán thuần.
 ${format.task}
 
 Đây là loại câu bắt buộc: ${questionType}. Chỉ tạo đúng loại này, không đổi sang loại khác. Không được tạo câu giống hoặc chỉ đổi nhãn của các câu đã có:
 ${previousVariants || '(chưa có câu nào)'}
 
 Bài gốc chỉ để nhận biết kỹ năng: ${item.sourceQuestion}
+Môn học bắt buộc: ${subjectLabel}
 Điểm học sinh từng kẹt: ${item.blocker}
 Phản hồi trước đó: ${item.sourceFeedback || 'Không có'}
 
@@ -108,6 +134,12 @@ Trả JSON hợp lệ với trường questionType chính xác là "${questionTy
 prompt là bài mới; hint gợi mở nhưng không giải hộ; answerGuide chỉ để hệ thống chấm. ${formulaRule(language)}${repairError ? `
 
 LỖI Ở LẦN TRƯỚC: ${repairError}. Hãy tạo lại toàn bộ JSON và sửa đúng lỗi đó.` : ''}`;
+};
+
+const isOffSubjectPractice = (item, prompt) => {
+  // Chemistry sources must never get algebra "biểu thức đại số / thay x =" drills.
+  if (!looksLikeChemistry(item?.sourceQuestion || '')) return false;
+  return looksLikePureMathPrompt(prompt);
 };
 
 const getReadVariant = (item, questionType) => {
@@ -153,6 +185,10 @@ const generatePracticeVariant = async (item, questionType, language = 'en') => {
       const result = await makeRequestWithRetry(() => chat.sendMessage(buildPracticePrompt(item, language, questionType, repairError)));
       variant = validateGeneratedPractice(parseJson(extractResponseText(result)), questionType);
       if (!variant) throw new Error(`Gemini returned invalid ${questionType} practice format`);
+      if (isOffSubjectPractice(item, variant.prompt)) {
+        variant = undefined;
+        throw new Error(`Gemini returned an off-subject ${questionType} practice question`);
+      }
       const existingPrompts = new Set((item.practice?.variants || []).map(entry => normalizePracticePrompt(entry.prompt)));
       if (existingPrompts.has(normalizePracticePrompt(variant.prompt)) || normalizePracticePrompt(item.sourceQuestion) === normalizePracticePrompt(variant.prompt)) {
         variant = undefined;
@@ -336,8 +372,10 @@ module.exports = {
   generatePracticeVariant,
   getPracticeSourceQuestion,
   getConversationTitle,
+  isOffSubjectPractice,
   parseJson,
   requestPracticeGuidance,
+  resolvePracticeSubject,
   toPublicPracticeVariant,
   validateGeneratedPractice,
   toPublicPracticeItem,
