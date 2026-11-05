@@ -120,9 +120,9 @@ const buildPracticePrompt = (item, language = 'en', questionType = 'long_answer'
   const subjectLabel = item.course || item.subjectArea || 'natural_sciences';
   return `${languageInstruction}
 Tạo một bài ôn mới mất không quá 2 phút, cùng đúng kỹ năng cần luyện nhưng là bài MỚI.
-Đổi dữ kiện, số liệu, bối cảnh hoặc cách diễn đạt để không sao chép câu hay đáp án của bài gốc. Không dùng lại nguyên câu dài từ bài gốc, không hỏi lại bài gốc và không tiết lộ đáp án bài gốc.
+Chỉ được đổi số liệu. Giữ nguyên mọi chất và công thức của bài gốc. Không thay sắt bằng kẽm, không đổi phản ứng, không tiết lộ đáp án bài gốc.
 BẮT BUỘC giữ đúng môn học "${subjectLabel}". Nếu bài gốc là hóa học thì chỉ tạo câu hóa học; tuyệt đối không tạo câu đại số, biểu thức, thay số vào x, hay toán thuần.
-Giữ đúng DẠNG lời giải của bài gốc. Chỉ được đổi chất, số liệu và cách diễn đạt. Cách giải trong câu mới phải làm được ngay bằng dữ kiện đã cho.
+Giữ đúng DẠNG lời giải của bài gốc. Cách giải trong câu mới phải làm được ngay bằng dữ kiện đã cho.
 Nếu bài gốc là bảo toàn khối lượng, câu mới phải cho ít nhất ba khối lượng có đơn vị g và đúng một ẩn. Không được bỏ một khối lượng rồi vẫn bảo học sinh dùng định luật bảo toàn. Không đổi sang tính số mol, nồng độ hoặc hiệu suất khi bài gốc chỉ là cộng trừ khối lượng.
 ${format.task}
 
@@ -138,6 +138,29 @@ Trả JSON hợp lệ với trường questionType chính xác là "${questionTy
 prompt là bài mới; hint gợi mở nhưng không giải hộ; answerGuide chỉ để hệ thống chấm. ${formulaRule(language)}${repairError ? `
 
 LỖI Ở LẦN TRƯỚC: ${repairError}. Hãy tạo lại toàn bộ JSON và sửa đúng lỗi đó.` : ''}`;
+};
+
+const FORMULA_ELEMENTS = new Set(['H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'K', 'Ca', 'Fe', 'Cu', 'Zn', 'Ag', 'Sn', 'I', 'Ba', 'Pb', 'Mn', 'Cr', 'Ni', 'Co', 'Hg', 'Br']);
+const SUBSCRIPT_DIGITS = { '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9' };
+
+const extractFormulas = (text) => {
+  const normalized = String(text || '').replace(/[₀-₉]/g, digit => SUBSCRIPT_DIGITS[digit] || digit);
+  const tokens = normalized.match(/[A-Z][a-z]?\d*(?:[A-Z][a-z]?\d*)*/g) || [];
+  const formulas = [];
+  for (const token of tokens) {
+    const parts = token.match(/[A-Z][a-z]?/g) || [];
+    if (parts.length && parts.every(part => FORMULA_ELEMENTS.has(part))) formulas.push(token);
+  }
+  return [...new Set(formulas)];
+};
+
+const sameSubstanceIssue = (source, prompt) => {
+  const required = extractFormulas(source);
+  if (required.length < 2) return '';
+  const present = new Set(extractFormulas(prompt));
+  const missing = required.filter(token => !present.has(token));
+  if (!missing.length) return '';
+  return `Câu ôn đổi chất, thiếu công thức của bài gốc: ${missing.join(', ')}.`;
 };
 
 const isOffSubjectPractice = (item, prompt) => {
@@ -251,7 +274,8 @@ const generatePracticeVariant = async (item, questionType, language = 'en') => {
         throw new Error(`Gemini returned an off-subject ${questionType} practice question`);
       }
       const correctOptionText = variant.options?.find(option => option.id === variant.correctOptionId)?.text || '';
-      const formIssue = massConservationIssue(item.sourceQuestion, variant.prompt, variant.answerGuide, correctOptionText);
+      const formIssue = massConservationIssue(item.sourceQuestion, variant.prompt, variant.answerGuide, correctOptionText)
+        || sameSubstanceIssue(item.sourceQuestion, variant.prompt);
       if (formIssue) {
         variant = undefined;
         throw new Error(formIssue);
@@ -448,6 +472,7 @@ module.exports = {
   parseJson,
   requestPracticeGuidance,
   resolvePracticeSubject,
+  sameSubstanceIssue,
   toPublicPracticeVariant,
   validateGeneratedPractice,
   toPublicPracticeItem,

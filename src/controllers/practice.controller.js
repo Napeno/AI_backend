@@ -84,7 +84,7 @@ const getItems = async (req, res) => {
     const totalPages = Math.max(1, Math.ceil(totalItems / limit));
     const page = Math.min(requestedPage, totalPages);
     const items = await PracticeItem.find(filter)
-      .sort({ nextReviewAt: 1, updatedAt: -1 })
+      .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit);
 

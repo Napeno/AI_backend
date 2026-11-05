@@ -8,6 +8,7 @@ const {
   getConversationTitle,
   isMassConservationSource,
   massConservationIssue,
+  sameSubstanceIssue,
   parseJson,
   validateGeneratedPractice,
   toPublicPracticeItem,
@@ -84,7 +85,7 @@ test('asks Gemini for a new similar task rather than the original question', () 
   }, 'vi');
 
   assert.match(prompt, /bài MỚI/);
-  assert.match(prompt, /không sao chép/);
+  assert.match(prompt, /Chỉ được đổi số liệu/);
   assert.match(prompt, /không tiết lộ đáp án bài gốc/);
   assert.match(prompt, /Giữ đúng DẠNG lời giải/);
 });
@@ -102,10 +103,15 @@ test('rejects a conservation question that drops a given mass', () => {
   assert.match(issue, /ít nhất ba khối lượng/);
 });
 
-test('accepts a conservation question that keeps three masses and the matching unknown', () => {
-  const prompt = 'Cho 3,2 g đồng (Cu) tác dụng vừa đủ với dung dịch chứa 7,3 g HCl, thu được 9,9 g muối và x g khí H₂. Tính x.';
-  const issue = massConservationIssue(MASS_SOURCE, prompt, '3,2 + 7,3 - 9,9 = 0,6 g', '0,6 g');
-  assert.equal(issue, '');
+test('accepts a conservation question that keeps the same substances and the matching unknown', () => {
+  const prompt = 'Cho 4,2 g sắt (Fe) tác dụng vừa đủ với dung dịch chứa 5,1 g hydrochloric acid (HCl), thu được 8,8 g iron(II) chloride (FeCl₂) và x g khí hydrogen (H₂). Tính x.';
+  assert.equal(massConservationIssue(MASS_SOURCE, prompt, '4,2 + 5,1 - 8,8 = 0,5 g', '0,5 g'), '');
+  assert.equal(sameSubstanceIssue(MASS_SOURCE, prompt), '');
+});
+
+test('rejects a conservation question that swaps iron for zinc', () => {
+  const prompt = 'Cho 6,5 g kẽm (Zn) tác dụng hoàn toàn với dung dịch chứa 7,3 g hydrochloric acid (HCl). Sau phản ứng, người ta thu được 13,6 g muối zinc chloride (ZnCl₂) và x g khí hydrogen (H₂). Giá trị của x là:';
+  assert.match(sameSubstanceIssue(MASS_SOURCE, prompt), /Fe/);
 });
 
 test('rejects a conservation answer that does not match the mass sum', () => {
