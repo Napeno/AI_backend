@@ -6,6 +6,8 @@ const {
   canShowPracticeSolution,
   getPracticeSourceQuestion,
   getConversationTitle,
+  explainMassConservation,
+  guidanceNumberIssue,
   isMassConservationSource,
   massConservationIssue,
   sameSubstanceIssue,
@@ -112,6 +114,18 @@ test('accepts a conservation question that keeps the same substances and the mat
 test('rejects a conservation question that swaps iron for zinc', () => {
   const prompt = 'Cho 6,5 g kẽm (Zn) tác dụng hoàn toàn với dung dịch chứa 7,3 g hydrochloric acid (HCl). Sau phản ứng, người ta thu được 13,6 g muối zinc chloride (ZnCl₂) và x g khí hydrogen (H₂). Giá trị của x là:';
   assert.match(sameSubstanceIssue(MASS_SOURCE, prompt), /Fe/);
+});
+
+test('explains a conservation reply with the real sum and the unknown', () => {
+  const prompt = 'Cho 16,8 g sắt (Fe) tác dụng vừa đủ với dung dịch chứa 21,9 g HCl, thu được 38,1 g FeCl₂ và x g H₂. Tính x.';
+  const explanation = explainMassConservation(prompt, 'D (0,8)');
+  assert.match(explanation.feedback, /Lựa chọn D \(0,8\) chưa đúng/);
+  assert.match(explanation.feedback, /16,8 \+ 21,9 = 38,7/);
+  assert.match(explanation.feedback, /x = 0,6/);
+  const variant = { prompt, options: [{ id: 'D', text: '0,8 g' }], answerGuide: '0,6 g' };
+  assert.equal(guidanceNumberIssue(variant, explanation.feedback), '');
+  assert.match(guidanceNumberIssue(variant, '16,8 + 21,9 = 38,1'), /không khép/);
+  assert.match(guidanceNumberIssue(variant, 'Khối lượng là 99 g'), /không có trong đề/);
 });
 
 test('rejects a conservation answer that does not match the mass sum', () => {

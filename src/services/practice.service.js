@@ -195,6 +195,75 @@ const isMassConservationSource = (text) => {
   return grams.length >= 3 && hasMassUnknown(value) && conservationUnknown(grams) !== null;
 };
 
+const formatViNumber = (value) => String(Math.round(Number(value) * 1000) / 1000).replace('.', ',');
+
+const explainMassConservation = (prompt, selectedLabel = '') => {
+  if (!isMassConservationSource(prompt)) return null;
+  const grams = parseGramNumbers(prompt);
+  const largest = Math.max(...grams);
+  const maxIndex = grams.indexOf(largest);
+  const reactants = grams.filter((_, index) => index !== maxIndex);
+  const reactantSum = Math.round(reactants.reduce((total, value) => total + value, 0) * 1000) / 1000;
+  const unknown = Math.round((reactantSum - largest) * 1000) / 1000;
+  if (unknown < 0) return null;
+  const left = reactants.map(formatViNumber).join(' + ');
+  const sumText = formatViNumber(reactantSum);
+  const productText = formatViNumber(largest);
+  const unknownText = formatViNumber(unknown);
+  const choice = selectedLabel ? `Lựa chọn ${selectedLabel} chưa đúng. ` : '';
+  const steps = `${choice}Áp dụng định luật bảo toàn khối lượng: tổng khối lượng các chất tham gia bằng tổng khối lượng các chất sản phẩm.\nCộng các khối lượng đã biết của chất tham gia: ${left} = ${sumText}.\nPhương trình: ${sumText} = ${productText} + x.\nVậy x = ${unknownText} g, vì ${sumText} − ${productText} = ${unknownText}.`;
+  return {
+    feedback: steps,
+    correctFeedback: `Đúng. ${left} = ${sumText}, rồi x = ${sumText} − ${productText} = ${unknownText} g.`,
+    nextQuestion: `Khối lượng còn lại x bằng ${unknownText} g. Em đối chiếu lại với các lựa chọn trong đề.`,
+  };
+};
+
+const numbersClose = (left, right) => Math.abs(left - right) <= 0.05;
+
+const parseLooseNumbers = (text) => {
+  const values = [];
+  for (const match of String(text || '').matchAll(/(\d+(?:[.,]\d+)?)/g)) {
+    const value = Number(String(match[1]).replace(',', '.'));
+    if (Number.isFinite(value)) values.push(value);
+  }
+  return values;
+};
+
+const allowedPracticeNumbers = (variant = {}) => {
+  const texts = [variant.prompt, variant.answerGuide, ...(variant.options || []).map(option => option.text)];
+  const grams = parseGramNumbers(variant.prompt);
+  const derived = [];
+  for (let i = 0; i < grams.length; i += 1) {
+    for (let j = i + 1; j < grams.length; j += 1) {
+      derived.push(grams[i] + grams[j], Math.abs(grams[i] - grams[j]));
+    }
+  }
+  const unknown = conservationUnknown(grams);
+  if (unknown !== null) derived.push(unknown);
+  return [...texts.flatMap(parseLooseNumbers), ...derived];
+};
+
+const guidanceNumberIssue = (variant, reply) => {
+  const allowed = allowedPracticeNumbers(variant);
+  if (!allowed.length) return '';
+  const isAllowed = (value) => allowed.some(candidate => numbersClose(candidate, value));
+  for (const value of parseGramNumbers(reply)) {
+    if (!isAllowed(value)) return `Phản hồi dùng khối lượng ${formatViNumber(value)} g không có trong đề.`;
+  }
+  for (const match of String(reply || '').matchAll(/=\s*(\d+(?:[.,]\d+)?)/g)) {
+    const value = Number(String(match[1]).replace(',', '.'));
+    if (Number.isFinite(value) && !isAllowed(value)) return `Kết quả ${formatViNumber(value)} không tính được từ số trong đề.`;
+  }
+  const closed = String(reply || '').match(/(\d+(?:[.,]\d+)?)\s*\+\s*(\d+(?:[.,]\d+)?)\s*=\s*(\d+(?:[.,]\d+)?)(?!\s*\+)/);
+  if (closed) {
+    const left = Number(closed[1].replace(',', '.')) + Number(closed[2].replace(',', '.'));
+    const right = Number(closed[3].replace(',', '.'));
+    if (!numbersClose(left, right)) return `Phương trình ${closed[0]} không khép.`;
+  }
+  return '';
+};
+
 const textHasNumber = (text, expected) => {
   for (const match of String(text || '').matchAll(/(\d+(?:[.,]\d+)?)/g)) {
     const value = Number(String(match[1]).replace(',', '.'));
@@ -314,16 +383,38 @@ const formatRecentTurns = (item, variant = item.practice) => (variant?.turns || 
 
 const normalizeAnswer = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
+const conservationReply = (variant, action, answer) => {
+  const explanation = explainMassConservation(variant?.prompt);
+  if (!explanation) return null;
+  if (action === 'solution') {
+    return { isCorrect: null, isMeaningfulAttempt: false, feedback: explanation.feedback, hint: '', nextQuestion: explanation.nextQuestion };
+  }
+  if (action !== 'attempt') return null;
+  const option = variant.options?.find(entry => entry.id === answer);
+  const selectedLabel = option ? `${option.id} (${option.text})` : answer;
+  const detailed = explainMassConservation(variant.prompt, selectedLabel);
+  const isCorrect = variant.correctOptionId ? answer === variant.correctOptionId : null;
+  if (isCorrect === false) {
+    return { isCorrect: false, isMeaningfulAttempt: true, feedback: detailed.feedback, hint: '', nextQuestion: detailed.nextQuestion };
+  }
+  if (isCorrect === true) {
+    return { isCorrect: true, isMeaningfulAttempt: true, feedback: detailed.correctFeedback, hint: '', nextQuestion: '' };
+  }
+  return null;
+};
+
 const requestPracticeGuidance = async (item, action, answer = '', language = 'en', questionType = 'long_answer') => {
   const variant = getReadVariant(item, questionType);
   if (!variant) return null;
+  const prepared = conservationReply(variant, action, answer);
+  if (prepared) return prepared;
   const actionInstruction = action === 'hint'
-    ? 'Đưa đúng một gợi ý mới, tăng dần nhưng không giải hộ.'
+    ? 'Đưa đúng một gợi ý mới, tăng dần nhưng không giải hộ. Chỉ dùng số có trong đề.'
     : action === 'solution'
-      ? 'Giải thích ngắn gọn lời giải mẫu CHỈ cho bài ôn mới này. Không nhắc lại hay giải bài gốc.'
-      : 'Đọc kỹ bước làm học sinh vừa gửi và đánh giá theo đúng bài ôn. Nếu sai, chỉ rõ đúng một điểm cần sửa; nếu đúng, xác nhận chính xác điều đã làm đúng. Câu hỏi tiếp theo phải dựa trên câu trả lời này, không dùng mẫu chung. Không giải trọn bài.';
+      ? 'Giải thích chi tiết hướng làm CHỈ cho bài ôn này, từng bước. Mỗi phép tính phải ghi kết quả trung gian. Chỉ dùng số có trong đề, các lựa chọn và gợi ý chấm. Không bịa số mới.'
+      : 'Nếu sai, giải thích chi tiết hướng làm từng bước bằng đúng số trong đề. Mỗi phép tính phải ghi kết quả trung gian. Không bịa khối lượng mới. Nếu đúng, xác nhận và nêu ngắn phép tính đúng.';
   const prompt = `${language === 'vi' ? 'Chỉ trả JSON hợp lệ bằng tiếng Việt.' : 'Return valid JSON only in English.'}
-Bạn là gia sư ôn tập theo kiểu dẫn dắt. ${actionInstruction}
+Bạn là gia sư ôn tập. ${actionInstruction}
 Loại bài: ${questionType}
 Bài ôn mới: ${variant.prompt}
 ${questionType === 'multiple_choice' ? `Các lựa chọn: ${JSON.stringify(variant.options)}` : ''}
@@ -334,14 +425,15 @@ ${formatRecentTurns(item, variant) || '(chưa có)'}
 ${action === 'attempt' ? `Bước học sinh vừa gửi: ${answer}` : ''}
 
 Schema: {"isCorrect":true|false|null,"isMeaningfulAttempt":true|false,"feedback":"...","hint":"...","nextQuestion":"..."}.
-Với hint hoặc solution, isCorrect là null. Với attempt, feedback phải nhắc đến bước hoặc phép tính học sinh vừa gửi; nextQuestion là bắt buộc và chỉ yêu cầu đúng một bước tiếp theo phù hợp với phản hồi đó. Không dùng các câu mẫu như “hãy viết một công thức” nếu không giải thích được công thức nào liên quan. ${formulaRule(language)}`;
+Với hint hoặc solution, isCorrect là null. Với attempt, feedback phải nhắc lựa chọn hoặc bước học sinh vừa gửi và giải thích hướng làm; nextQuestion là bắt buộc. Không dùng số không có trong đề. ${formulaRule(language)}`;
 
   let repairError = '';
-  while (true) {
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_PRACTICE_GENERATION_ATTEMPTS; attempt += 1) {
     try {
       const chat = startChat([], language === 'vi'
-        ? 'Bạn là gia sư gợi mở. Chỉ trả JSON hợp lệ.'
-        : 'You are a guided tutor. Return valid JSON only.');
+        ? 'Bạn là gia sư. Chỉ trả JSON hợp lệ. Giải thích hướng làm bằng đúng số trong đề.'
+        : 'You are a tutor. Return valid JSON only. Explain the method using only numbers from the question.', PRACTICE_MODEL);
       const parsed = parseJson(extractResponseText(await makeRequestWithRetry(() => chat.sendMessage(`${prompt}${repairError ? `\n\nLỖI Ở LẦN TRƯỚC: ${repairError}. Hãy sửa và trả lại toàn bộ JSON.` : ''}`))));
       if (!parsed || typeof parsed !== 'object' || !String(parsed.feedback || '').trim()) throw new Error('Gemini returned invalid practice guidance');
       if (action !== 'attempt' && parsed.isCorrect !== null) throw new Error('Gemini returned an answer for a non-attempt action');
@@ -349,26 +441,33 @@ Với hint hoặc solution, isCorrect là null. Với attempt, feedback phải n
       if (action === 'attempt' && typeof parsed.isMeaningfulAttempt !== 'boolean') throw new Error('Gemini returned invalid practice attempt status');
       if (action === 'attempt' && !String(parsed.nextQuestion || '').trim()) throw new Error('Gemini returned no next step for the practice attempt');
       if (action === 'hint' && !String(parsed.hint || '').trim()) throw new Error('Gemini returned no hint for the practice hint request');
-      return {
+      const reply = {
         isCorrect: action === 'attempt' && typeof parsed.isCorrect === 'boolean' ? parsed.isCorrect : null,
         isMeaningfulAttempt: action === 'attempt' && parsed.isMeaningfulAttempt === true,
         feedback: String(parsed.feedback).trim().slice(0, 2000),
         hint: String(parsed.hint || '').trim().slice(0, 1200),
         nextQuestion: String(parsed.nextQuestion || '').trim().slice(0, 1200),
       };
+      const numberIssue = guidanceNumberIssue(variant, `${reply.feedback}\n${reply.hint}\n${reply.nextQuestion}`);
+      if (numberIssue) throw new Error(numberIssue);
+      return reply;
     } catch (error) {
+      lastError = error;
       console.error('Practice guidance generation failed:', error.message);
       if (isGeminiTransportError(error)) throw error;
       repairError = error.message;
     }
   }
+  throw lastError || new Error('Practice guidance generation failed');
 };
 
 const evaluatePracticeAttempt = async (item, answer, language = 'en', questionType = 'long_answer') => {
+  const variant = getReadVariant(item, questionType);
+  const prepared = conservationReply(variant, 'attempt', answer);
+  if (prepared) return prepared;
   const result = await requestPracticeGuidance(item, 'attempt', answer, language, questionType);
   if (!result) return null;
 
-  const variant = getReadVariant(item, questionType);
   if (questionType === 'multiple_choice' && variant?.correctOptionId) {
     result.isCorrect = answer === variant.correctOptionId;
     result.isMeaningfulAttempt = true;
@@ -463,6 +562,8 @@ module.exports = {
   canShowPracticeSolution,
   capturePracticeItem,
   evaluatePracticeAttempt,
+  explainMassConservation,
+  guidanceNumberIssue,
   generatePracticeVariant,
   getPracticeSourceQuestion,
   getConversationTitle,
