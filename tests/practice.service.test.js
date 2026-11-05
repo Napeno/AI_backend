@@ -6,6 +6,8 @@ const {
   canShowPracticeSolution,
   getPracticeSourceQuestion,
   getConversationTitle,
+  isMassConservationSource,
+  massConservationIssue,
   parseJson,
   validateGeneratedPractice,
   toPublicPracticeItem,
@@ -84,6 +86,32 @@ test('asks Gemini for a new similar task rather than the original question', () 
   assert.match(prompt, /bài MỚI/);
   assert.match(prompt, /không sao chép/);
   assert.match(prompt, /không tiết lộ đáp án bài gốc/);
+  assert.match(prompt, /Giữ đúng DẠNG lời giải/);
+});
+
+const MASS_SOURCE = 'Cho 5,6 g sắt (Fe) tác dụng vừa đủ với dung dịch chứa 7,3 g hydrochloric acid (HCl), thu được 12,7 g iron(II) chloride (FeCl₂) và x g khí hydrogen (H₂). Tính x.';
+
+test('rejects a conservation question that drops a given mass', () => {
+  assert.equal(isMassConservationSource(MASS_SOURCE), true);
+  const issue = massConservationIssue(
+    MASS_SOURCE,
+    'Cho 4,8 g magie (Mg) tác dụng hoàn toàn với dung dịch hydrochloric acid (HCl), thu được 19 g magnesium chloride (MgCl₂) và một lượng khí hydrogen (H₂). Hãy áp dụng định luật bảo toàn khối lượng để tính khối lượng khí hydrogen thoát ra.',
+    '0,4 g',
+    '0,4 g',
+  );
+  assert.match(issue, /ít nhất ba khối lượng/);
+});
+
+test('accepts a conservation question that keeps three masses and the matching unknown', () => {
+  const prompt = 'Cho 3,2 g đồng (Cu) tác dụng vừa đủ với dung dịch chứa 7,3 g HCl, thu được 9,9 g muối và x g khí H₂. Tính x.';
+  const issue = massConservationIssue(MASS_SOURCE, prompt, '3,2 + 7,3 - 9,9 = 0,6 g', '0,6 g');
+  assert.equal(issue, '');
+});
+
+test('rejects a conservation answer that does not match the mass sum', () => {
+  const prompt = 'Cho 3,2 g đồng (Cu) tác dụng vừa đủ với dung dịch chứa 7,3 g HCl, thu được 9,9 g muối và x g khí H₂. Tính x.';
+  const issue = massConservationIssue(MASS_SOURCE, prompt, 'Đáp án là 0,4 g', '0,4 g');
+  assert.match(issue, /không khớp phép cộng trừ/);
 });
 
 test('gives each practice type a distinct generation contract', () => {

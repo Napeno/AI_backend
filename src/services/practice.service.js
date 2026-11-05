@@ -10,6 +10,8 @@ const {
 
 const REVIEW_DAYS = [1, 3, 7];
 const MAX_TURNS_IN_PROMPT = 6;
+const MAX_PRACTICE_GENERATION_ATTEMPTS = 3;
+const PRACTICE_MODEL = process.env.GEMINI_PRACTICE_MODEL || 'gemini-3-flash-preview';
 const QUESTION_TYPES = ['multiple_choice', 'true_false', 'fill_blank', 'long_answer'];
 const normalizePracticePrompt = value => String(value || '').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 const isGeminiTransportError = error => Boolean(
@@ -120,12 +122,14 @@ const buildPracticePrompt = (item, language = 'en', questionType = 'long_answer'
 Tạo một bài ôn mới mất không quá 2 phút, cùng đúng kỹ năng cần luyện nhưng là bài MỚI.
 Đổi dữ kiện, số liệu, bối cảnh hoặc cách diễn đạt để không sao chép câu hay đáp án của bài gốc. Không dùng lại nguyên câu dài từ bài gốc, không hỏi lại bài gốc và không tiết lộ đáp án bài gốc.
 BẮT BUỘC giữ đúng môn học "${subjectLabel}". Nếu bài gốc là hóa học thì chỉ tạo câu hóa học; tuyệt đối không tạo câu đại số, biểu thức, thay số vào x, hay toán thuần.
+Giữ đúng DẠNG lời giải của bài gốc. Chỉ được đổi chất, số liệu và cách diễn đạt. Cách giải trong câu mới phải làm được ngay bằng dữ kiện đã cho.
+Nếu bài gốc là bảo toàn khối lượng, câu mới phải cho ít nhất ba khối lượng có đơn vị g và đúng một ẩn. Không được bỏ một khối lượng rồi vẫn bảo học sinh dùng định luật bảo toàn. Không đổi sang tính số mol, nồng độ hoặc hiệu suất khi bài gốc chỉ là cộng trừ khối lượng.
 ${format.task}
 
 Đây là loại câu bắt buộc: ${questionType}. Chỉ tạo đúng loại này, không đổi sang loại khác. Không được tạo câu giống hoặc chỉ đổi nhãn của các câu đã có:
 ${previousVariants || '(chưa có câu nào)'}
 
-Bài gốc chỉ để nhận biết kỹ năng: ${item.sourceQuestion}
+Bài gốc, giữ đúng dạng này: ${item.sourceQuestion}
 Môn học bắt buộc: ${subjectLabel}
 Điểm học sinh từng kẹt: ${item.blocker}
 Phản hồi trước đó: ${item.sourceFeedback || 'Không có'}
@@ -140,6 +144,62 @@ const isOffSubjectPractice = (item, prompt) => {
   // Chemistry sources must never get algebra "biểu thức đại số / thay x =" drills.
   if (!looksLikeChemistry(item?.sourceQuestion || '')) return false;
   return looksLikePureMathPrompt(prompt);
+};
+
+const parseGramNumbers = (text) => {
+  const values = [];
+  for (const match of String(text || '').matchAll(/(\d+(?:[.,]\d+)?)\s*g(?![a-zA-Z])/gi)) {
+    const value = Number(String(match[1]).replace(',', '.'));
+    if (Number.isFinite(value)) values.push(value);
+  }
+  return values;
+};
+
+const hasMassUnknown = (text) => /(?:\bx\s*g\b|tính\s+x\b|tính\s+khối\s*lượng|bao nhiêu|_____)/i.test(String(text || ''));
+
+const conservationUnknown = (grams) => {
+  if (grams.length < 3) return null;
+  const sum = grams.reduce((total, value) => total + value, 0);
+  const unknown = sum - 2 * Math.max(...grams);
+  if (unknown < 0) return null;
+  return Math.round(unknown * 1000) / 1000;
+};
+
+const isMassConservationSource = (text) => {
+  const value = String(text || '');
+  if (/(?:số\s*mol|hiệu\s*suất|nồng\s*độ|khối\s*lượng\s*mol)/i.test(value)) return false;
+  const grams = parseGramNumbers(value);
+  return grams.length >= 3 && hasMassUnknown(value) && conservationUnknown(grams) !== null;
+};
+
+const textHasNumber = (text, expected) => {
+  for (const match of String(text || '').matchAll(/(\d+(?:[.,]\d+)?)/g)) {
+    const value = Number(String(match[1]).replace(',', '.'));
+    if (Number.isFinite(value) && Math.abs(value - expected) <= 0.05) return true;
+  }
+  return false;
+};
+
+const massConservationIssue = (source, prompt, answerGuide = '', correctOptionText = '') => {
+  const sourceIsConservation = isMassConservationSource(source);
+  const claimsConservation = /bảo\s*toàn\s*khối\s*lượng/i.test(String(prompt || ''));
+  if (!sourceIsConservation && !claimsConservation) return '';
+  if (sourceIsConservation && /(?:số\s*mol|khối\s*lượng\s*mol|nồng\s*độ|hiệu\s*suất)/i.test(String(prompt || ''))) {
+    return 'Câu ôn đổi sang tính mol hoặc hiệu suất trong khi bài gốc là bảo toàn khối lượng.';
+  }
+  const grams = parseGramNumbers(prompt);
+  if (grams.length < 3 || !hasMassUnknown(prompt)) {
+    return 'Câu bảo toàn khối lượng phải có ít nhất ba khối lượng đã biết (g) và một ẩn.';
+  }
+  const expected = conservationUnknown(grams);
+  if (expected === null) return 'Các khối lượng đã cho không khép được bằng phép cộng trừ.';
+  if (!textHasNumber(answerGuide, expected)) {
+    return `Đáp án không khớp phép cộng trừ khối lượng. Ẩn phải bằng ${expected} g.`;
+  }
+  if (correctOptionText && !textHasNumber(correctOptionText, expected)) {
+    return `Đáp án trắc nghiệm không khớp phép cộng trừ khối lượng. Ẩn phải bằng ${expected} g.`;
+  }
+  return '';
 };
 
 const getReadVariant = (item, questionType) => {
@@ -177,11 +237,12 @@ const generatePracticeVariant = async (item, questionType, language = 'en') => {
   if (!QUESTION_TYPES.includes(questionType)) throw new Error('Invalid practice question type');
   let repairError = '';
   let variant;
-  while (!variant) {
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_PRACTICE_GENERATION_ATTEMPTS && !variant; attempt += 1) {
     try {
       const chat = startChat([], language === 'vi'
-        ? 'Bạn tạo đúng một bài ôn mới theo loại được yêu cầu. Chỉ trả JSON hợp lệ.'
-        : 'Create exactly one new practice task in the requested type. Return valid JSON only.');
+        ? 'Bạn tạo đúng một bài ôn mới theo loại được yêu cầu. Chỉ trả JSON hợp lệ. Giữ đúng dạng bài gốc.'
+        : 'Create exactly one new practice task in the requested type. Return valid JSON only. Keep the original problem form.', PRACTICE_MODEL);
       const result = await makeRequestWithRetry(() => chat.sendMessage(buildPracticePrompt(item, language, questionType, repairError)));
       variant = validateGeneratedPractice(parseJson(extractResponseText(result)), questionType);
       if (!variant) throw new Error(`Gemini returned invalid ${questionType} practice format`);
@@ -189,17 +250,26 @@ const generatePracticeVariant = async (item, questionType, language = 'en') => {
         variant = undefined;
         throw new Error(`Gemini returned an off-subject ${questionType} practice question`);
       }
+      const correctOptionText = variant.options?.find(option => option.id === variant.correctOptionId)?.text || '';
+      const formIssue = massConservationIssue(item.sourceQuestion, variant.prompt, variant.answerGuide, correctOptionText);
+      if (formIssue) {
+        variant = undefined;
+        throw new Error(formIssue);
+      }
       const existingPrompts = new Set((item.practice?.variants || []).map(entry => normalizePracticePrompt(entry.prompt)));
       if (existingPrompts.has(normalizePracticePrompt(variant.prompt)) || normalizePracticePrompt(item.sourceQuestion) === normalizePracticePrompt(variant.prompt)) {
         variant = undefined;
         throw new Error(`Gemini returned a duplicate ${questionType} practice question`);
       }
     } catch (error) {
+      lastError = error;
       console.error('Practice question generation failed:', error.message);
       if (isGeminiTransportError(error)) throw error;
       repairError = error.message;
+      variant = undefined;
     }
   }
+  if (!variant) throw lastError || new Error('Practice question generation failed');
 
   item.practice ||= {};
   item.practice.variants ||= [];
@@ -372,7 +442,9 @@ module.exports = {
   generatePracticeVariant,
   getPracticeSourceQuestion,
   getConversationTitle,
+  isMassConservationSource,
   isOffSubjectPractice,
+  massConservationIssue,
   parseJson,
   requestPracticeGuidance,
   resolvePracticeSubject,

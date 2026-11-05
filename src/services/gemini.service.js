@@ -170,13 +170,13 @@ const markKeyUnhealthy = (keyNumber, reason, ttlMs = unhealthyTtlMs, now = Date.
   }));
 };
 
-const getChat = (history, systemInstruction) => {
+const getChat = (history, systemInstruction, modelName = GEMINI_MODEL) => {
   if (API_KEYS.length === 0) {
     throw new Error('No Google API keys configured');
   }
 
   const model = new GoogleGenerativeAI(API_KEYS[activeKeyIndex].key).getGenerativeModel({
-    model: GEMINI_MODEL,
+    model: modelName || GEMINI_MODEL,
     systemInstruction,
   });
 
@@ -315,8 +315,8 @@ const makeRequestWithRetry = async (requestFn, maxRetries = Math.max(API_KEYS.le
   }
 };
 
-const startChat = (history, systemInstruction) => ({
-  sendMessage: (...args) => getChat(history, systemInstruction).sendMessage(...args),
+const startChat = (history, systemInstruction, modelName = GEMINI_MODEL) => ({
+  sendMessage: (...args) => getChat(history, systemInstruction, modelName).sendMessage(...args),
 });
 
 const extractResponseText = (result) => {
