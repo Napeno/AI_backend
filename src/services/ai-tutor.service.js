@@ -441,7 +441,7 @@ const isRelatedToSource = (value, sourceText) => {
   }
   if (linearEquationData(source) && /\d+(?:[.,]\d+)?\s*x\s*[+-]\s*\d+(?:[.,]\d+)?\s*=\s*[+-]?\d+/i.test(content)) return true;
   if (linearEquationData(source) && /\bx\b|phương trình|hệ số|chuyển|chia|equation|coefficient|divide/i.test(content)) return true;
-  if (algebraData(source) && /\([^)]*\)\s*(?:\^\s*2|²)/i.test(content)) return true;
+  if ((algebraData(source) || topicAlgebraData(source)) && /(?:\([^)]*\)\s*(?:\^\s*[23]|²|³)|hằng\s*đẳng|hang\s*dang|khai\s*triển|khai\s*trien|bình\s*phương|binh\s*phuong)/i.test(content)) return true;
   if (chemistryEquation(source) && /(?:→|->|=>)/.test(content)) return true;
   if (/(?:→|->|=>|\\rightarrow|ightarrow)/i.test(source) && /(?:→|->|=>|\\rightarrow|ightarrow)/i.test(content)) return true;
   if (isCircuitSource(source) && /\b(?:u|i|r)\d+\b|mạch điện|điện trở/i.test(content)) return true;

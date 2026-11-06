@@ -171,6 +171,31 @@ test('creates five different same-form linear equations', () => {
   assert.ok(questions.every(question => question.interactionType === 'math_tokens'));
 });
 
+test('accepts a binomial question when the source only names the grade 8 identity topic', () => {
+  const step = {
+    title: 'Khai triển',
+    explanation: 'Áp dụng (a + b)² = a² + 2ab + b².',
+    analysis: 'Xác định a và b rồi thay vào công thức.',
+    hint: 'Bình phương từng số hạng rồi cộng số hạng giữa.',
+    easierExample: { prompt: 'Khai triển (a + 1)².', answer: 'a² + 2a + 1', hint: 'Lấy a làm số hạng thứ nhất và 1 làm số hạng thứ hai.' },
+    blanks: [],
+    tokens: [],
+  };
+  const prompts = ['Khai triển (x + 3)².', 'Khai triển (y - 4)².', 'Khai triển (m + 5)².', 'Khai triển (n - 2)³.', 'Khai triển (t + 6)².'];
+  const lesson = sanitizeLesson({
+    questions: prompts.map(prompt => ({
+      title: 'Hằng đẳng thức',
+      prompt,
+      options: ['Đáp án A', 'Đáp án B', 'Đáp án C', 'Đáp án D'],
+      correctOptionId: 0,
+      tutorSteps: [step, { ...step, title: 'Kiểm tra' }],
+    })),
+  }, { sourceText: 'hang dang thuc lop 8 di', language: 'vi', subjectArea: 'mathematics', course: 'mathematics' }, true);
+
+  assert.equal(lesson.questions[0].prompt, 'Khai triển (x + 3)².');
+  assert.equal(lesson.questions[3].prompt, 'Khai triển (n - 2)³.');
+});
+
 test('rejects an incomplete AI-generated lesson instead of using fallback questions', () => {
   assert.throws(
     () => sanitizeLesson({ questions: [] }, { sourceText: '2x + 7 = 13', language: 'vi' }, true),
