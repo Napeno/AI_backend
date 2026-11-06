@@ -143,13 +143,18 @@ LỖI Ở LẦN TRƯỚC: ${repairError}. Hãy tạo lại toàn bộ JSON và s
 const FORMULA_ELEMENTS = new Set(['H', 'He', 'Li', 'Be', 'B', 'C', 'N', 'O', 'F', 'Ne', 'Na', 'Mg', 'Al', 'Si', 'P', 'S', 'Cl', 'K', 'Ca', 'Fe', 'Cu', 'Zn', 'Ag', 'Sn', 'I', 'Ba', 'Pb', 'Mn', 'Cr', 'Ni', 'Co', 'Hg', 'Br']);
 const SUBSCRIPT_DIGITS = { '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9' };
 
+const isUnicodeLetter = (char) => Boolean(char) && char.toLowerCase() !== char.toUpperCase();
+
 const extractFormulas = (text) => {
   const normalized = String(text || '').replace(/[₀-₉]/g, digit => SUBSCRIPT_DIGITS[digit] || digit);
-  const tokens = normalized.match(/[A-Z][a-z]?\d*(?:[A-Z][a-z]?\d*)*/g) || [];
   const formulas = [];
-  for (const token of tokens) {
-    const parts = token.match(/[A-Z][a-z]?/g) || [];
-    if (parts.length && parts.every(part => FORMULA_ELEMENTS.has(part))) formulas.push(token);
+  const pattern = /[A-Z][a-z]?\d*(?:[A-Z][a-z]?\d*)*/g;
+  for (const match of normalized.matchAll(pattern)) {
+    const next = normalized[match.index + match[0].length] || '';
+    // "Cân", "Câu", "Cho" start with C but are Vietnamese words, not carbon.
+    if (isUnicodeLetter(next)) continue;
+    const parts = match[0].match(/[A-Z][a-z]?/g) || [];
+    if (parts.length && parts.every(part => FORMULA_ELEMENTS.has(part))) formulas.push(match[0]);
   }
   return [...new Set(formulas)];
 };

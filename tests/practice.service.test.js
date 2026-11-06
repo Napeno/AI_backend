@@ -111,6 +111,14 @@ test('accepts a conservation question that keeps the same substances and the mat
   assert.equal(sameSubstanceIssue(MASS_SOURCE, prompt), '');
 });
 
+test('does not treat the C in Cân or Cho as carbon', () => {
+  const source = 'Cân bằng PTHH: Mg+Hcl->MgCl2+H2';
+  const prompt = 'Cân bằng phương trình: Mg + 2HCl -> MgCl2 + H2';
+  assert.equal(sameSubstanceIssue(source, prompt), '');
+  assert.equal(sameSubstanceIssue('Cho 4 g C cháy trong O2 tạo CO2', 'Cho 2 g C cháy trong O2 tạo CO2'), '');
+  assert.match(sameSubstanceIssue('C + O2 -> CO2', 'O2 tạo O2'), /C/);
+});
+
 test('rejects a conservation question that swaps iron for zinc', () => {
   const prompt = 'Cho 6,5 g kẽm (Zn) tác dụng hoàn toàn với dung dịch chứa 7,3 g hydrochloric acid (HCl). Sau phản ứng, người ta thu được 13,6 g muối zinc chloride (ZnCl₂) và x g khí hydrogen (H₂). Giá trị của x là:';
   assert.match(sameSubstanceIssue(MASS_SOURCE, prompt), /Fe/);
