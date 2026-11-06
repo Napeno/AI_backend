@@ -3,7 +3,6 @@ const Conversation = require('../models/conversation.model');
 const User = require('../models/user.model');
 const mongoose = require('mongoose');
 const { awardChestnuts } = require('../services/reward.service');
-const RankingService = require('../services/ranking.service');
 const ThinkerService = require('../services/thinker.service');
 const RULES = require('../config/intervention-rules.json');
 const {
@@ -191,11 +190,6 @@ const submitAttempt = async (req, res) => {
           `practice-correct:${item._id}:${questionType}:${variant.prompt}`
         );
         chestnutsAwarded = reward.awarded ? RULES.rewards.practiceCorrect : 0;
-        if (reward.awarded) {
-          const pointsResult = RankingService.awardPoints(user, 25, 'practice_correct');
-          pointsAwarded = pointsResult.pointsAwarded;
-          await user.save();
-        }
         const updatedUser = reward.awarded
           ? user
           : await User.findById(req.user._id).select('chestnuts points rank');

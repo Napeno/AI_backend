@@ -1,6 +1,5 @@
 const Conversation = require('../../models/conversation.model');
 const User = require('../../models/user.model');
-const RankingService = require('../../services/ranking.service');
 const { awardChestnuts } = require('../../services/reward.service');
 const RULES = require('../../config/intervention-rules.json');
 const ImageUploadService = require('../../services/image-upload.service');
@@ -82,15 +81,6 @@ const checkAnswer = async (req, res, imageData = null) => {
           `correct-answer:${conversation._id}:${evaluation.questionId || 'current'}`
         );
         chestnutsAwarded = reward.awarded ? RULES.rewards.correctAnswer : 0;
-        pointsAwarded = 25;
-        const pointsResult = RankingService.awardPoints(user, pointsAwarded, 'correct_answer');
-        await user.save();
-        if (pointsResult.rankChanged) {
-          const rank = RankingService.getRankInfo(pointsResult.newRank, language);
-          responseText += language === 'vi'
-            ? `\n\n🎉 RANK UP! Bạn đã thăng hạng lên ${rank.displayName} ${rank.icon}!\n${rank.displayDescription}`
-            : `\n\n🎉 RANK UP! You've been promoted to ${rank.displayName} ${rank.icon}!\n${rank.displayDescription}`;
-        }
       }
     } catch (error) {
       console.error('Correct-answer reward failed:', error.message);

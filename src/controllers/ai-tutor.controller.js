@@ -3,7 +3,6 @@ const User = require('../models/user.model');
 const AiTutorLesson = require('../models/ai-tutor-question.model');
 const { ensureProblemContext, getActiveQuestion } = require('../services/problem-context.service');
 const { generateTutorQuestion, makeLessonId, generateQuestion, makeQuestionId } = require('../services/ai-tutor.service');
-const RankingService = require('../services/ranking.service');
 const { awardChestnuts } = require('../services/reward.service');
 const ThinkerService = require('../services/thinker.service');
 
@@ -325,11 +324,6 @@ const answer = async (req, res) => {
         `ai-tutor-correct:${lesson.lessonId}:${question.id}`
       );
       chestnutsAwarded = reward.awarded ? 5 : 0;
-      if (reward.awarded) {
-        const pointsResult = RankingService.awardPoints(user, 25, 'ai_tutor_correct_answer');
-        pointsAwarded = pointsResult.pointsAwarded;
-        await user.save();
-      }
       const updatedUser = reward.awarded
         ? user
         : await User.findById(req.user._id).select('chestnuts points rank');
