@@ -43,10 +43,12 @@ const getPracticeSourceQuestion = (conversation = {}) => {
   const context = conversation.problemContext || {};
   const questionId = context.activeQuestionId || context.suggestedQuestionId;
   const question = (context.questions || []).find(entry => entry.id === questionId);
-  const selectedQuestion = [question?.prompt, question?.sourceExpression]
-    .filter(Boolean)
-    .join('\n')
-    .trim();
+  const prompt = String(question?.prompt || '').trim();
+  const expression = String(question?.sourceExpression || '').trim();
+  // Image OCR often stores the expression both in prompt and sourceExpression.
+  const selectedQuestion = prompt && expression && !prompt.includes(expression)
+    ? `${prompt}\n${expression}`
+    : (prompt || expression);
 
   return (selectedQuestion || getLastUserQuestion(conversation.history)).slice(0, 1200);
 };

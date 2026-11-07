@@ -66,6 +66,23 @@ test('uses the selected conversation question as the practice source', () => {
   assert.equal(source, 'Câu b\nx + 4');
 });
 
+test('does not duplicate an expression already present in the math prompt', () => {
+  const expression = '\\frac{1}{9} - 0,3 \\cdot \\frac{5}{9} + \\frac{1}{3} + 5';
+  const source = getPracticeSourceQuestion({
+    problemContext: {
+      activeQuestionId: '1a',
+      questions: [{
+        id: '1a',
+        prompt: `Thực hiện phép tính: ${expression}`,
+        sourceExpression: expression,
+      }],
+    },
+  });
+
+  assert.equal(source, `Thực hiện phép tính: ${expression}`);
+  assert.equal(source.includes(expression + '\n' + expression), false);
+});
+
 test('uses the first real user message as the saved conversation title', () => {
   assert.equal(getConversationTitle({
     history: [
