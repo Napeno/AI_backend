@@ -237,16 +237,20 @@ const parseLooseNumbers = (text) => {
 
 const allowedPracticeNumbers = (variant = {}) => {
   const texts = [variant.prompt, variant.answerGuide, ...(variant.options || []).map(option => option.text)];
+  const base = texts.flatMap(parseLooseNumbers);
   const grams = parseGramNumbers(variant.prompt);
+  // Prefer gram masses for chemistry; otherwise derive from the small set of question numbers
+  // so intermediate sums like 3 + 5 = 8 are allowed for every subject.
+  const pool = grams.length >= 2 ? grams : [...new Set(base)].slice(0, 6);
   const derived = [];
-  for (let i = 0; i < grams.length; i += 1) {
-    for (let j = i + 1; j < grams.length; j += 1) {
-      derived.push(grams[i] + grams[j], Math.abs(grams[i] - grams[j]));
+  for (let i = 0; i < pool.length; i += 1) {
+    for (let j = i + 1; j < pool.length; j += 1) {
+      derived.push(pool[i] + pool[j], Math.abs(pool[i] - pool[j]));
     }
   }
   const unknown = conservationUnknown(grams);
   if (unknown !== null) derived.push(unknown);
-  return [...texts.flatMap(parseLooseNumbers), ...derived];
+  return [...base, ...derived];
 };
 
 const guidanceNumberIssue = (variant, reply) => {
@@ -388,24 +392,93 @@ const formatRecentTurns = (item, variant = item.practice) => (variant?.turns || 
 
 const normalizeAnswer = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
-const conservationReply = (variant, action, answer) => {
+const answersMatch = (left, right) => {
+  if (normalizeAnswer(left) === normalizeAnswer(right)) return true;
+  const leftNumbers = parseLooseNumbers(left);
+  const rightNumbers = parseLooseNumbers(right);
+  return leftNumbers.length === 1
+    && rightNumbers.length === 1
+    && numbersClose(leftNumbers[0], rightNumbers[0]);
+};
+
+const conservationUnknownFromPrompt = (prompt) => {
+  if (!isMassConservationSource(prompt)) return null;
+  return conservationUnknown(parseGramNumbers(prompt));
+};
+
+const answerMatchesConservation = (answer, prompt, variant = {}) => {
+  const unknown = conservationUnknownFromPrompt(prompt);
+  if (unknown === null) return null;
+  if (variant.correctOptionId) return answer === variant.correctOptionId;
+  if (typeof variant.correctAnswer === 'boolean') return answer === String(variant.correctAnswer);
+  if (variant.answerGuide && answersMatch(answer, variant.answerGuide)) return true;
+  const answerNumbers = parseLooseNumbers(answer);
+  if (!answerNumbers.length) return false;
+  // Long answers may include several numbers from the prompt; the last number is usually x.
+  return numbersClose(answerNumbers[answerNumbers.length - 1], unknown)
+    || answerNumbers.some(value => numbersClose(value, unknown));
+};
+
+const conservationReply = (variant, action, answer = '') => {
   const explanation = explainMassConservation(variant?.prompt);
   if (!explanation) return null;
   if (action === 'solution') {
     return { isCorrect: null, isMeaningfulAttempt: false, feedback: explanation.feedback, hint: '', nextQuestion: explanation.nextQuestion };
   }
+  if (action === 'hint') {
+    const grams = parseGramNumbers(variant.prompt);
+    const largest = Math.max(...grams);
+    const knownReactants = grams.filter((_, index) => index !== grams.indexOf(largest));
+    return {
+      isCorrect: null,
+      isMeaningfulAttempt: false,
+      feedback: 'Áp dụng định luật bảo toàn khối lượng: tổng khối lượng chất tham gia bằng tổng khối lượng sản phẩm.',
+      hint: `Cộng các khối lượng đã biết của chất tham gia: ${knownReactants.map(formatViNumber).join(' + ')}. Tổng đó bằng ${formatViNumber(largest)} + x.`,
+      nextQuestion: '',
+    };
+  }
   if (action !== 'attempt') return null;
+  const isCorrect = answerMatchesConservation(answer, variant.prompt, variant);
+  if (isCorrect === null) return null;
   const option = variant.options?.find(entry => entry.id === answer);
-  const selectedLabel = option ? `${option.id} (${option.text})` : answer;
+  const selectedLabel = option ? `${option.id} (${option.text})` : String(answer || '').slice(0, 40);
+  if (isCorrect) {
+    return { isCorrect: true, isMeaningfulAttempt: true, feedback: explanation.correctFeedback, hint: '', nextQuestion: '' };
+  }
   const detailed = explainMassConservation(variant.prompt, selectedLabel);
-  const isCorrect = variant.correctOptionId ? answer === variant.correctOptionId : null;
-  if (isCorrect === false) {
-    return { isCorrect: false, isMeaningfulAttempt: true, feedback: detailed.feedback, hint: '', nextQuestion: detailed.nextQuestion };
+  return { isCorrect: false, isMeaningfulAttempt: true, feedback: detailed.feedback, hint: '', nextQuestion: detailed.nextQuestion };
+};
+
+const safePracticeGuidance = (variant, action, answer = '', language = 'en') => {
+  const numbers = [...new Set(parseLooseNumbers(variant?.prompt).map(formatViNumber))];
+  const numberHint = numbers.length
+    ? (language === 'vi' ? `Chỉ dùng các số trong đề: ${numbers.join(', ')}.` : `Use only numbers from the question: ${numbers.join(', ')}.`)
+    : '';
+  if (action === 'hint') {
+    return {
+      isCorrect: null,
+      isMeaningfulAttempt: false,
+      feedback: language === 'vi' ? 'Hãy nhìn lại dữ kiện trong đề và chọn bước tính tiếp theo.' : 'Look at the given data and choose the next step.',
+      hint: numberHint || (language === 'vi' ? 'Em viết lại một bước ngắn dựa trên đề.' : 'Write one short step from the question.'),
+      nextQuestion: '',
+    };
   }
-  if (isCorrect === true) {
-    return { isCorrect: true, isMeaningfulAttempt: true, feedback: detailed.correctFeedback, hint: '', nextQuestion: '' };
+  if (action === 'solution') {
+    return {
+      isCorrect: null,
+      isMeaningfulAttempt: false,
+      feedback: `${language === 'vi' ? 'Em hãy giải lại theo đúng dữ kiện trong đề.' : 'Please solve again using only the data in the question.'} ${numberHint}`.trim(),
+      hint: '',
+      nextQuestion: '',
+    };
   }
-  return null;
+  return {
+    isCorrect: false,
+    isMeaningfulAttempt: true,
+    feedback: `${language === 'vi' ? `Em đã gửi “${String(answer || '').slice(0, 80)}”. Hãy giải thích lại bằng đúng dữ kiện trong đề.` : `You sent “${String(answer || '').slice(0, 80)}”. Please explain again using only the given data.`} ${numberHint}`.trim(),
+    hint: '',
+    nextQuestion: language === 'vi' ? 'Em viết lại một bước tính tiếp theo.' : 'Write the next calculation step.',
+  };
 };
 
 const requestPracticeGuidance = async (item, action, answer = '', language = 'en', questionType = 'long_answer') => {
@@ -463,7 +536,8 @@ Với hint hoặc solution, isCorrect là null. Với attempt, feedback phải n
       repairError = error.message;
     }
   }
-  throw lastError || new Error('Practice guidance generation failed');
+  console.error('Practice guidance falling back after retries:', lastError?.message);
+  return safePracticeGuidance(variant, action, answer, language);
 };
 
 const evaluatePracticeAttempt = async (item, answer, language = 'en', questionType = 'long_answer') => {
@@ -482,7 +556,7 @@ const evaluatePracticeAttempt = async (item, answer, language = 'en', questionTy
     result.isMeaningfulAttempt = true;
   }
   if (questionType === 'fill_blank' && variant?.answerGuide) {
-    result.isCorrect = normalizeAnswer(answer) === normalizeAnswer(variant.answerGuide);
+    result.isCorrect = answersMatch(answer, variant.answerGuide);
     result.isMeaningfulAttempt = true;
   }
   return result;
@@ -567,6 +641,7 @@ module.exports = {
   canShowPracticeSolution,
   capturePracticeItem,
   evaluatePracticeAttempt,
+  conservationReply,
   explainMassConservation,
   guidanceNumberIssue,
   generatePracticeVariant,

@@ -6,6 +6,7 @@ const {
   canShowPracticeSolution,
   getPracticeSourceQuestion,
   getConversationTitle,
+  conservationReply,
   explainMassConservation,
   guidanceNumberIssue,
   isMassConservationSource,
@@ -134,6 +135,32 @@ test('explains a conservation reply with the real sum and the unknown', () => {
   assert.equal(guidanceNumberIssue(variant, explanation.feedback), '');
   assert.match(guidanceNumberIssue(variant, '16,8 + 21,9 = 38,1'), /không khép/);
   assert.match(guidanceNumberIssue(variant, 'Khối lượng là 99 g'), /không có trong đề/);
+});
+
+test('grades fill-blank and long-answer conservation without calling the model', () => {
+  const prompt = 'Cho 16,8 g sắt (Fe) tác dụng vừa đủ với dung dịch chứa 21,9 g HCl, thu được 38,1 g FeCl₂ và x g H₂. Theo định luật bảo toàn khối lượng, giá trị của x là _____.';
+  const fill = { prompt, answerGuide: '0,6 g' };
+  const correct = conservationReply(fill, 'attempt', '0,6 gam');
+  assert.equal(correct.isCorrect, true);
+  assert.match(correct.feedback, /0,6/);
+
+  const wrong = conservationReply(fill, 'attempt', '5,6');
+  assert.equal(wrong.isCorrect, false);
+  assert.match(wrong.feedback, /16,8 \+ 21,9 = 38,7/);
+  assert.doesNotMatch(wrong.feedback, /5,6 g sắt/);
+
+  const longWrong = conservationReply({ prompt, answerGuide: '0,6' }, 'attempt', 'x = 1');
+  assert.equal(longWrong.isCorrect, false);
+  assert.match(longWrong.feedback, /x = 0,6/);
+
+  const hint = conservationReply(fill, 'hint');
+  assert.equal(hint.isCorrect, null);
+  assert.match(hint.hint, /16,8 \+ 21,9/);
+});
+
+test('allows intermediate sums for non-chemistry questions', () => {
+  const variant = { prompt: 'Tính 17 - 8 = ?', answerGuide: '9' };
+  assert.equal(guidanceNumberIssue(variant, 'Vì 8 + 9 = 17 nên hiệu là 9.'), '');
 });
 
 test('rejects a conservation answer that does not match the mass sum', () => {
